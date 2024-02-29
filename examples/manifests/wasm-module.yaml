@@ -1,0 +1,6 @@
+apiVersion: wasm.serving.knative.dev/v1alpha1
+kind: WasmModule
+metadata:
+  name: reverse-string
+spec:
+  serviceName: strreverse
