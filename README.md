@@ -1,11 +1,10 @@
-# Knative Sample Controller
+# Knative WASM
 
 [![GoDoc](https://godoc.org/github.com/cardil/knative-serving-wasm?status.svg)](https://godoc.org/github.com/cardil/knative-serving-wasm)
 [![Go Report Card](https://goreportcard.com/badge/cardil/knative-serving-wasm)](https://goreportcard.com/report/cardil/knative-serving-wasm)
 
-Knative `knative-serving-wasm` defines a few simple resources that are validated by
-webhook and managed by a controller to demonstrate the canonical style in which
-Knative writes controllers.
+The `knative-serving-wasm` allows to run WASM modules that implement the
+[wasi-http](https://github.com/WebAssembly/wasi-http) interface on Kubernetes.
 
 To learn more about Knative, please visit our
 [Knative docs](https://github.com/knative/docs) repository.
