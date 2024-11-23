@@ -19,8 +19,8 @@ set -Eeuo pipefail
 rootdir="$(git rev-parse --show-toplevel)"
 readonly rootdir
 
-source "$rootdir/vendor/knative.dev/hack/codegen-library.sh"
-export PATH="$GOBIN:$PATH"
+# shellcheck disable=SC1090
+source "$(go run knative.dev/hack/cmd/script codegen-library.sh)"
 
 function run_yq() {
 	go_run github.com/mikefarah/yq/v4@v4.23.1 "$@"

@@ -16,6 +16,7 @@
 
 set -Eeuo pipefail
 
-source "$(dirname "${BASH_SOURCE[0]:-$0}")/../vendor/knative.dev/hack/library.sh"
+# shellcheck disable=SC1090
+source "$(go run knative.dev/hack/cmd/script library.sh)"
 
 go_update_deps "$@"

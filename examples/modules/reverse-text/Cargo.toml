@@ -10,10 +10,7 @@ querystring = "1.1"
 urlencoding = "2.1"
 
 [dependencies.wasi]
-git = "https://github.com/bytecodealliance/wasi"
-rev = "d00dbc4a97136527368d3a6d0041ab630153627e"
-features = ["macros"]
-
+version = "0.13.3+wasi-0.2.2"
 
 [lib]
 crate-type = ["cdylib"]

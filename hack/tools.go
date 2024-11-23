@@ -24,9 +24,6 @@ import (
 	_ "k8s.io/code-generator"
 	_ "knative.dev/hack"
 
-	// codegen: hack/generate-knative.sh
-	_ "knative.dev/pkg/hack"
-
 	_ "k8s.io/code-generator/cmd/client-gen"
 	_ "k8s.io/code-generator/cmd/deepcopy-gen"
 	_ "k8s.io/code-generator/cmd/defaulter-gen"
