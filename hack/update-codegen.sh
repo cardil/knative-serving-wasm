@@ -16,9 +16,6 @@
 
 set -Eeuo pipefail
 
-rootdir="$(git rev-parse --show-toplevel)"
-readonly rootdir
-
 # shellcheck disable=SC1090
 source "$(go run knative.dev/hack/cmd/script codegen-library.sh)"
 
@@ -30,14 +27,11 @@ echo "=== Update Codegen for ${MODULE_NAME}"
 
 group "Kubernetes Codegen"
 
-# generate the code with:
-# --output-base    because this script should also be able to run inside the vendor dir of
-#                  k8s.io/kubernetes. The output-base is needed for the generators to output into the vendor dir
-#                  instead of the $GOPATH directly. For normal projects this can be dropped.
-"${CODEGEN_PKG}/generate-groups.sh" "deepcopy,client,informer,lister" \
-  github.com/cardil/knative-serving-wasm/pkg/client github.com/cardil/knative-serving-wasm/pkg/apis \
-  "wasm:v1alpha1" \
-  --go-header-file "${rootdir}/hack/boilerplate/boilerplate.go.txt"
+source "${CODEGEN_PKG}/kube_codegen.sh"
+
+kube::codegen::gen_helpers \
+  --boilerplate "$(boilerplate)" \
+  "${REPO_ROOT_DIR}/pkg/apis"
 
 group "Knative Codegen"
 
@@ -45,15 +39,15 @@ group "Knative Codegen"
 "${KNATIVE_CODEGEN_PKG}/hack/generate-knative.sh" "injection" \
   github.com/cardil/knative-serving-wasm/pkg/client github.com/cardil/knative-serving-wasm/pkg/apis \
   "wasm:v1alpha1" \
-  --go-header-file "${rootdir}/hack/boilerplate/boilerplate.go.txt"
+  --go-header-file "$(boilerplate)"
 
 group "Update CRD Schema"
 
-go run "$rootdir/cmd/schema" dump WasmModule \
+go run "${REPO_ROOT_DIR}/cmd/schema" dump WasmModule \
   | run_yq eval-all --header-preprocess=false --inplace 'select(fileIndex == 0).spec.versions[0].schema.openAPIV3Schema = select(fileIndex == 1) | select(fileIndex == 0)' \
-  "$rootdir/config/300-wasmmodule.yaml" -
+  "${REPO_ROOT_DIR}/config/300-wasmmodule.yaml" -
 
 group "Update deps post-codegen"
 
 # Make sure our dependencies are up-to-date
-"$rootdir/hack/update-deps.sh"
+"${REPO_ROOT_DIR}/hack/update-deps.sh"

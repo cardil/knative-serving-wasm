@@ -23,13 +23,8 @@
 
 # Markdown linting failures don't show up properly in Gubernator resulting
 # in a net-negative contributor experience.
-export DISABLE_MD_LINTING=1
-export GO111MODULE=on
 
-source $(dirname $0)/../vendor/knative.dev/hack/presubmit-tests.sh
-
-# TODO(mattmoor): integration tests
-
-# We use the default build, unit and integration test runners.
+# shellcheck disable=SC1090
+source "$(go run knative.dev/hack/cmd/script presubmit-tests.sh)"
 
 main "$@"
