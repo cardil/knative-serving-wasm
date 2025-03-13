@@ -8,9 +8,7 @@ edition = "2021"
 [dependencies]
 querystring = "1.1"
 urlencoding = "2.1"
-
-[dependencies.wasi]
-version = "0.13.3+wasi-0.2.2"
+wasi = "0.14.2+wasi-0.2.4"
 
 [lib]
 crate-type = ["cdylib"]
