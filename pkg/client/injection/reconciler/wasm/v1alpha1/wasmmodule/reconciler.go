@@ -27,6 +27,7 @@ import (
 	versioned "github.com/cardil/knative-serving-wasm/pkg/client/clientset/versioned"
 	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/client/listers/wasm/v1alpha1"
 	zap "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	v1 "k8s.io/api/core/v1"
 	equality "k8s.io/apimachinery/pkg/api/equality"
 	errors "k8s.io/apimachinery/pkg/api/errors"
