@@ -43,9 +43,10 @@ group "Knative Codegen"
 
 group "Update CRD Schema"
 
-go run "${REPO_ROOT_DIR}/cmd/schema" dump WasmModule \
-  | run_yq eval-all --header-preprocess=false --inplace 'select(fileIndex == 0).spec.versions[0].schema.openAPIV3Schema = select(fileIndex == 1) | select(fileIndex == 0)' \
-  "${REPO_ROOT_DIR}/config/300-wasmmodule.yaml" -
+go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.1 \
+  schemapatch:manifests=config,generateEmbeddedObjectMeta=true \
+  output:dir=config/ \
+  paths=./pkg/apis/...
 
 group "Update deps post-codegen"
 
