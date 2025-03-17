@@ -2,8 +2,9 @@ use wasi::http::types::{
     Fields, IncomingRequest, OutgoingBody, OutgoingResponse, ResponseOutparam,
 };
 use std::collections::HashMap;
+use wasi::exports;
 
-wasi::http::incoming_handler::export!(Reverse);
+wasi::http::proxy::export!(Reverse);
 
 struct Reverse;
 
