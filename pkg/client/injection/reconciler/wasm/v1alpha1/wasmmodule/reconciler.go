@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Knative Authors
+Copyright 2025 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import (
 	versioned "github.com/cardil/knative-serving-wasm/pkg/client/clientset/versioned"
 	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/client/listers/wasm/v1alpha1"
 	zap "go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	zapcore "go.uber.org/zap/zapcore"
 	v1 "k8s.io/api/core/v1"
 	equality "k8s.io/apimachinery/pkg/api/equality"
 	errors "k8s.io/apimachinery/pkg/api/errors"
