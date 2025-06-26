@@ -1,18 +1,12 @@
-.PHONY: clean
-clean:
-	go run github.com/google/ko@latest delete -f config/
+# Those are callable targets
+TASKS = build clean deploy undeploy update update-deps update-codegen
 
-.PHONY: deploy
-deploy:
-	go run github.com/google/ko@latest apply -f config/
+all: build
 
-.PHONY: update-deps
-update: update-deps update-codegen
+.PHONY: $(TASKS)
+$(TASKS):
+	go run ./build/ $(ARGS) $@
 
-.PHONY: update-deps
-update-deps:
-	hack/update-deps.sh --upgrade
-
-.PHONY: update-codegen
-update-codegen:
-	hack/update-codegen.sh
+.PHONY: help
+help:
+	go run ./build/ -h
