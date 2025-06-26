@@ -1,5 +1,6 @@
 # Those are callable targets
-TASKS = build clean deploy undeploy update update-deps update-codegen
+TASKS = build clean deploy undeploy update update-deps update-codegen \
+  test e2e unit built-test
 
 all: build
 

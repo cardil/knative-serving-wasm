@@ -1,0 +1,25 @@
+name: Goyek
+
+on:
+  push:
+    branches: [ 'main', 'release-*' ]
+
+  pull_request:
+    branches: [ 'main', 'release-*' ]
+
+jobs:
+  goyek:
+    name: build test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '^1.23.0'
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-wasip2
+          components: rustfmt
+
+      - run: make ARGS=-v build test

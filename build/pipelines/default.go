@@ -10,10 +10,8 @@ func Default() *goyek.Flow {
 	f.Define(tasks.Clean())
 	f.Define(tasks.Deploy())
 	f.Define(tasks.Undeploy())
-	f.Define(tasks.UpdateDeps())
-	f.Define(tasks.UpdateCodegen())
-	// needs to be after codegen and deps
-	f.Define(tasks.Update(f))
+	tasks.Update(f)
+	tasks.Test(f)
 	f.SetDefault(f.Define(tasks.Build()))
 	return f
 }

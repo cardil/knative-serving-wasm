@@ -1,29 +1,38 @@
 package tasks
 
 import (
-	"fmt"
-	"slices"
+	"github.com/goyek/x/cmd"
 
 	"github.com/goyek/goyek/v2"
 )
 
-func Update(flow *goyek.Flow) goyek.Task {
-	deps := goyek.Deps{}
-	names := []string{
-		"update-deps",
-		"update-codegen",
-	}
-	for _, task := range flow.Tasks() {
-		if slices.Contains(names, task.Name()) {
-			deps = append(deps, task)
-		}
-	}
-	if len(deps) != len(names) {
-		panic(fmt.Errorf("couldn't find all the tasks"))
-	}
-	return goyek.Task{
+func Update(f *goyek.Flow) {
+	f.Define(goyek.Task{
 		Name:  "update",
 		Usage: "Update project",
-		Deps:  deps,
+		Deps: goyek.Deps{
+			f.Define(UpdateDeps()),
+			f.Define(UpdateCodegen()),
+		},
+	})
+}
+
+func UpdateCodegen() goyek.Task {
+	return goyek.Task{
+		Name:  "update-codegen",
+		Usage: "Update project automatically generated code",
+		Action: func(a *goyek.A) {
+			cmd.Exec(a, "hack/update-codegen.sh")
+		},
+	}
+}
+
+func UpdateDeps() goyek.Task {
+	return goyek.Task{
+		Name:  "update-deps",
+		Usage: "Update project dependencies",
+		Action: func(a *goyek.A) {
+			cmd.Exec(a, "hack/update-deps.sh --upgrade")
+		},
 	}
 }

@@ -10,7 +10,7 @@ func Build() goyek.Task {
 		Name:  "build",
 		Usage: "Builds the project",
 		Action: func(a *goyek.A) {
-			cmd.Exec(a, "go build -v ./...")
+			cmd.Exec(a, "go test -v -run '^$' -tags 'e2e' ./...")
 			cmd.Exec(a, "go build -v -o build/output/controller ./cmd/controller")
 			cmd.Exec(a, "cargo build", cmd.Dir("runner"))
 			cmd.Exec(a, "cargo build", cmd.Dir("examples/modules/reverse-text"))
