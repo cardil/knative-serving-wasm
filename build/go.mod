@@ -6,6 +6,7 @@ require (
 	github.com/cardil/knative-serving-wasm v0.0.0
 	github.com/goyek/goyek/v2 v2.3.0
 	github.com/goyek/x v0.3.0
+	github.com/joho/godotenv v1.5.1
 )
 
 replace github.com/cardil/knative-serving-wasm => ..

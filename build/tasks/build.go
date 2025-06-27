@@ -13,7 +13,7 @@ func Build() goyek.Task {
 			cmd.Exec(a, "go test -v -run '^$' -tags 'e2e' ./...")
 			cmd.Exec(a, "go build -v -o build/output/controller ./cmd/controller")
 			cmd.Exec(a, "cargo build", cmd.Dir("runner"))
-			cmd.Exec(a, "cargo build --target wasm32-wasip2",
+			cmd.Exec(a, "cargo build --target wasm32-wasip2 --release",
 				cmd.Dir("examples/modules/reverse-text"))
 		},
 	}
