@@ -1,10 +1,9 @@
 package tasks
 
 import (
+	"github.com/cardil/knative-serving-wasm/test/util/k8s"
 	"github.com/goyek/goyek/v2"
 	"github.com/goyek/x/cmd"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 func Test(f *goyek.Flow) {
@@ -58,20 +57,8 @@ func E2e() goyek.Task {
 func kubeAvailable(a *goyek.A) bool {
 	a.Helper()
 
-	loadingRules := &clientcmd.ClientConfigLoadingRules{}
-	overrides := &clientcmd.ConfigOverrides{}
-	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
-
-	config, err := loader.ClientConfig()
-	if err != nil {
+	if err := k8s.CheckConnection(); err != nil {
 		a.Log("Kube client failed: ", err)
-		return false
-	}
-
-	// create the clientset
-	_, err = kubernetes.NewForConfig(config)
-	if err != nil {
-		a.Log("kube error: ", err)
 		return false
 	}
 
