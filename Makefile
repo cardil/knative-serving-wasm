@@ -20,8 +20,8 @@ all: build
 
 .PHONY: $(TASKS)
 $(TASKS):
-	go run ./build/ $(ARGS) $@
+	@go run ./build/ $(ARGS) $@
 
 .PHONY: help
 help:
-	go run ./build/ -h
+	@go run ./build/ -h
