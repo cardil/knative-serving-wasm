@@ -49,7 +49,7 @@ func E2e() goyek.Task {
 				a.Log("Kube unavailable. Skipping e2e tests.")
 				return
 			}
-			cmd.Exec(a, "test/presubmit-tests.sh --e2e-tests")
+			cmd.Exec(a, "test/presubmit-tests.sh --integration-tests")
 		},
 	}
 }

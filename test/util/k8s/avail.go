@@ -8,7 +8,7 @@ import (
 // CheckConnection will return an error of connecting to Kubernetes, or nil if
 // a connection can be established.
 func CheckConnection() error {
-	loadingRules := &clientcmd.ClientConfigLoadingRules{}
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	overrides := &clientcmd.ConfigOverrides{}
 	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 
@@ -17,8 +17,16 @@ func CheckConnection() error {
 		return err
 	}
 
-	if _, err = kubernetes.NewForConfig(config); err != nil {
+	var client *kubernetes.Clientset
+	if client, err = kubernetes.NewForConfig(config); err != nil {
 		return err
 	}
+
+	// Perform a lightweight API call to verify actual connectivity
+	_, err = client.Discovery().ServerVersion()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
