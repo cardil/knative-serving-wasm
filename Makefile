@@ -1,7 +1,8 @@
 # Those are callable targets
 TASKS = build clean deploy undeploy update update-deps update-codegen \
-  test e2e unit built-test
+  test e2e unit build-test
 
+.PHONY: all
 all: build
 
 .PHONY: $(TASKS)

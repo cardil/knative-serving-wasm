@@ -13,7 +13,7 @@ func Test(f *goyek.Flow) {
 		Usage: "Run tests",
 		Deps: goyek.Deps{
 			f.Define(Unit()),
-			f.Define(BuiltTest()),
+			f.Define(BuildTest()),
 			f.Define(E2e()),
 		},
 	})
@@ -31,7 +31,7 @@ func Unit() goyek.Task {
 	}
 }
 
-func BuiltTest() goyek.Task {
+func BuildTest() goyek.Task {
 	return goyek.Task{
 		Name:  "build-test",
 		Usage: "Check if the project build properly, and without code-gen changes",
