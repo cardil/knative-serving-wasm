@@ -10,8 +10,7 @@ func Default() *goyek.Flow {
 	f := &goyek.Flow{}
 	f.UseExecutor(dotenv.Load)
 	f.Define(tasks.Clean())
-	f.Define(tasks.Deploy())
-	f.Define(tasks.Undeploy())
+	tasks.Deploy(f)
 	tasks.Update(f)
 	tasks.Test(f)
 	f.SetDefault(f.Define(tasks.Build()))

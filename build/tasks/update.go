@@ -20,7 +20,7 @@ func Update(f *goyek.Flow) {
 
 func UpdateCodegen() goyek.Task {
 	return goyek.Task{
-		Name:  "update-codegen",
+		Name:  "update:codegen",
 		Usage: "Update project automatically generated code",
 		Action: func(a *goyek.A) {
 			cmd.Exec(a, "hack/update-codegen.sh")
@@ -30,7 +30,7 @@ func UpdateCodegen() goyek.Task {
 
 func UpdateDeps() goyek.Task {
 	return goyek.Task{
-		Name:  "update-deps",
+		Name:  "update:deps",
 		Usage: "Update project dependencies",
 		Action: func(a *goyek.A) {
 			cmd.Exec(a, "hack/update-deps.sh --upgrade")
