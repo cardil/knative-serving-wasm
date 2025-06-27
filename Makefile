@@ -1,6 +1,16 @@
 # Those are callable targets
-TASKS = build clean deploy undeploy update update-deps update-codegen \
-  test e2e unit build-test
+TASKS = build \
+  clean \
+  deploy \
+  undeploy \
+  tidy \
+  update \
+  update-deps \
+  update-codegen \
+  test \
+  unit \
+  e2e \
+  build-test
 
 .PHONY: all
 all: build

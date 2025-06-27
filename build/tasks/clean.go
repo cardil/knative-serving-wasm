@@ -11,7 +11,7 @@ func Clean() goyek.Task {
 
 	return goyek.Task{
 		Name:  "clean",
-		Usage: "Clean the project",
+		Usage: "Cleans the project",
 		Action: func(a *goyek.A) {
 			cmd.Exec(a, "cargo clean", cmd.Dir("runner"))
 			cmd.Exec(a, "cargo clean", cmd.Dir("examples/modules/reverse-text"))

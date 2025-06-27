@@ -15,6 +15,7 @@ func Update(f *goyek.Flow) {
 			f.Define(UpdateCodegen()),
 		},
 	})
+	f.Define(TidyDeps())
 }
 
 func UpdateCodegen() goyek.Task {
@@ -33,6 +34,16 @@ func UpdateDeps() goyek.Task {
 		Usage: "Update project dependencies",
 		Action: func(a *goyek.A) {
 			cmd.Exec(a, "hack/update-deps.sh --upgrade")
+		},
+	}
+}
+
+func TidyDeps() goyek.Task {
+	return goyek.Task{
+		Name:  "tidy",
+		Usage: "Tidy up project dependencies",
+		Action: func(a *goyek.A) {
+			cmd.Exec(a, "hack/update-deps.sh")
 		},
 	}
 }

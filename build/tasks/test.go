@@ -33,7 +33,7 @@ func Unit() goyek.Task {
 func BuildTest() goyek.Task {
 	return goyek.Task{
 		Name:  "build-test",
-		Usage: "Check if the project build properly, and without code-gen changes",
+		Usage: "Check if the project build properly, without code-gen changes",
 		Action: func(a *goyek.A) {
 			cmd.Exec(a, "test/presubmit-tests.sh --build-tests")
 		},
