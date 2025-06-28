@@ -36,6 +36,10 @@ kube::codegen::gen_client \
   --with-watch \
   "${REPO_ROOT_DIR}/pkg/apis"
 
+kube::codegen::gen_helpers \
+  --boilerplate "$(boilerplate)" \
+  "${REPO_ROOT_DIR}/pkg"
+
 group "Knative Codegen"
 
 # Knative Injection
