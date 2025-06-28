@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Knative Authors
+Copyright 2025 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,13 +19,13 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
+	apiswasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 	versioned "github.com/cardil/knative-serving-wasm/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/cardil/knative-serving-wasm/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/cardil/knative-serving-wasm/pkg/client/listers/wasm/v1alpha1"
+	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/client/listers/wasm/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -36,7 +36,7 @@ import (
 // WasmModules.
 type WasmModuleInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.WasmModuleLister
+	Lister() wasmv1alpha1.WasmModuleLister
 }
 
 type wasmModuleInformer struct {
@@ -62,16 +62,28 @@ func NewFilteredWasmModuleInformer(client versioned.Interface, namespace string,
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.WasmV1alpha1().WasmModules(namespace).List(context.TODO(), options)
+				return client.WasmV1alpha1().WasmModules(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.WasmV1alpha1().WasmModules(namespace).Watch(context.TODO(), options)
+				return client.WasmV1alpha1().WasmModules(namespace).Watch(context.Background(), options)
+			},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.WasmV1alpha1().WasmModules(namespace).List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.WasmV1alpha1().WasmModules(namespace).Watch(ctx, options)
 			},
 		},
-		&wasmv1alpha1.WasmModule{},
+		&apiswasmv1alpha1.WasmModule{},
 		resyncPeriod,
 		indexers,
 	)
@@ -82,9 +94,9 @@ func (f *wasmModuleInformer) defaultInformer(client versioned.Interface, resyncP
 }
 
 func (f *wasmModuleInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&wasmv1alpha1.WasmModule{}, f.defaultInformer)
+	return f.factory.InformerFor(&apiswasmv1alpha1.WasmModule{}, f.defaultInformer)
 }
 
-func (f *wasmModuleInformer) Lister() v1alpha1.WasmModuleLister {
-	return v1alpha1.NewWasmModuleLister(f.Informer().GetIndexer())
+func (f *wasmModuleInformer) Lister() wasmv1alpha1.WasmModuleLister {
+	return wasmv1alpha1.NewWasmModuleLister(f.Informer().GetIndexer())
 }

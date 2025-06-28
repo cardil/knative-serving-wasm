@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Knative Authors
+Copyright 2025 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,10 +19,10 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/cache"
+	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
 )
 
 // WasmModuleLister helps list WasmModules.
@@ -30,7 +30,7 @@ import (
 type WasmModuleLister interface {
 	// List lists all WasmModules in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.WasmModule, err error)
+	List(selector labels.Selector) (ret []*wasmv1alpha1.WasmModule, err error)
 	// WasmModules returns an object that can list and get WasmModules.
 	WasmModules(namespace string) WasmModuleNamespaceLister
 	WasmModuleListerExpansion
@@ -38,25 +38,17 @@ type WasmModuleLister interface {
 
 // wasmModuleLister implements the WasmModuleLister interface.
 type wasmModuleLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*wasmv1alpha1.WasmModule]
 }
 
 // NewWasmModuleLister returns a new WasmModuleLister.
 func NewWasmModuleLister(indexer cache.Indexer) WasmModuleLister {
-	return &wasmModuleLister{indexer: indexer}
-}
-
-// List lists all WasmModules in the indexer.
-func (s *wasmModuleLister) List(selector labels.Selector) (ret []*v1alpha1.WasmModule, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.WasmModule))
-	})
-	return ret, err
+	return &wasmModuleLister{listers.New[*wasmv1alpha1.WasmModule](indexer, wasmv1alpha1.Resource("wasmmodule"))}
 }
 
 // WasmModules returns an object that can list and get WasmModules.
 func (s *wasmModuleLister) WasmModules(namespace string) WasmModuleNamespaceLister {
-	return wasmModuleNamespaceLister{indexer: s.indexer, namespace: namespace}
+	return wasmModuleNamespaceLister{listers.NewNamespaced[*wasmv1alpha1.WasmModule](s.ResourceIndexer, namespace)}
 }
 
 // WasmModuleNamespaceLister helps list and get WasmModules.
@@ -64,36 +56,15 @@ func (s *wasmModuleLister) WasmModules(namespace string) WasmModuleNamespaceList
 type WasmModuleNamespaceLister interface {
 	// List lists all WasmModules in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.WasmModule, err error)
+	List(selector labels.Selector) (ret []*wasmv1alpha1.WasmModule, err error)
 	// Get retrieves the WasmModule from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.WasmModule, error)
+	Get(name string) (*wasmv1alpha1.WasmModule, error)
 	WasmModuleNamespaceListerExpansion
 }
 
 // wasmModuleNamespaceLister implements the WasmModuleNamespaceLister
 // interface.
 type wasmModuleNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all WasmModules in the indexer for a given namespace.
-func (s wasmModuleNamespaceLister) List(selector labels.Selector) (ret []*v1alpha1.WasmModule, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.WasmModule))
-	})
-	return ret, err
-}
-
-// Get retrieves the WasmModule from the indexer for a given namespace and name.
-func (s wasmModuleNamespaceLister) Get(name string) (*v1alpha1.WasmModule, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("wasmmodule"), name)
-	}
-	return obj.(*v1alpha1.WasmModule), nil
+	listers.ResourceIndexer[*wasmv1alpha1.WasmModule]
 }
