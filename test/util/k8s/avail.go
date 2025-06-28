@@ -18,6 +18,7 @@ func CheckConnection() error {
 	}
 
 	var client *kubernetes.Clientset
+
 	if client, err = kubernetes.NewForConfig(config); err != nil {
 		return err
 	}

@@ -31,16 +31,16 @@ import (
 // NewController creates a Reconciler and returns the result of NewImpl.
 func NewController(
 	ctx context.Context,
-	cmw configmap.Watcher,
+	_ configmap.Watcher,
 ) *controller.Impl {
 	wasmmoduleInformer := wasmmoduleinformer.Get(ctx)
 	svcInformer := svcinformer.Get(ctx)
 
-	r := &Reconciler{
+	reconciler := &Reconciler{
 		ServiceLister: svcInformer.Lister(),
 	}
-	impl := wasmmodulereconciler.NewImpl(ctx, r)
-	r.Tracker = impl.Tracker
+	impl := wasmmodulereconciler.NewImpl(ctx, reconciler)
+	reconciler.Tracker = impl.Tracker
 
 	wasmmoduleInformer.Informer().AddEventHandler(controller.HandleAll(impl.Enqueue))
 
@@ -49,7 +49,7 @@ func NewController(
 		// coming through this path missing TypeMeta, so ensure it is properly
 		// populated.
 		controller.EnsureTypeMeta(
-			r.Tracker.OnChanged,
+			reconciler.Tracker.OnChanged,
 			corev1.SchemeGroupVersion.WithKind("Service"),
 		),
 	))

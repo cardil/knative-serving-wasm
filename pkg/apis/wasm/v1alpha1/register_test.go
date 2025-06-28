@@ -14,29 +14,34 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"testing"
 
+	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func TestRegisterHelpers(t *testing.T) {
-	if got, want := Kind("Foo"), "Foo.wasm.serving.knative.dev"; got.String() != want {
+	t.Parallel()
+
+	if got, want := wasmv1alpha1.Kind("Foo"), "Foo.wasm.serving.knative.dev"; got.String() != want {
 		t.Errorf("Kind(Foo) = %v, want %v", got.String(), want)
 	}
 
-	if got, want := Resource("Foo"), "Foo.wasm.serving.knative.dev"; got.String() != want {
+	if got, want := wasmv1alpha1.Resource("Foo"), "Foo.wasm.serving.knative.dev"; got.String() != want {
 		t.Errorf("Resource(Foo) = %v, want %v", got.String(), want)
 	}
 
-	if got, want := SchemeGroupVersion.String(), "wasm.serving.knative.dev/v1alpha1"; got != want {
+	if got, want := wasmv1alpha1.SchemeGroupVersion.String(), "wasm.serving.knative.dev/v1alpha1"; got != want {
 		t.Errorf("SchemeGroupVersion() = %v, want %v", got, want)
 	}
 
 	scheme := runtime.NewScheme()
-	if err := addKnownTypes(scheme); err != nil {
+
+	err := wasmv1alpha1.AddKnownTypes(scheme)
+	if err != nil {
 		t.Errorf("addKnownTypes() = %v", err)
 	}
 }

@@ -21,9 +21,9 @@ import (
 	"knative.dev/pkg/apis"
 )
 
-var condSet = apis.NewLivingConditionSet()
+var condSet = apis.NewLivingConditionSet() //nolint:gochecknoglobals
 
-// GetGroupVersionKind implements kmeta.OwnerRefable
+// GetGroupVersionKind implements kmeta.OwnerRefable.
 func (*WasmModule) GetGroupVersionKind() schema.GroupVersionKind {
 	return SchemeGroupVersion.WithKind("WasmModule")
 }

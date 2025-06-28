@@ -1,22 +1,32 @@
+version: "2"
 run:
-  timeout: 5m
-
   build-tags:
     - e2e
-
-  skip-dirs:
-    - pkg/client
-
 linters:
-  enable:
-    - asciicheck
-    - errorlint
-    - gosec
-    - prealloc
-    - revive
-    - stylecheck
-    - tparallel
-    - unconvert
-    - unparam
+  default: all
   disable:
     - errcheck
+    - wrapcheck
+    - exhaustruct
+    - depguard
+    - noinlineerr
+    - ireturn
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
