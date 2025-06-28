@@ -39,7 +39,7 @@ func Main(opts ...Option) {
 	flag.BoolVar(&p.NoDeps, "no-deps", p.NoDeps, "do not process dependencies")
 	flag.StringVarP(&p.Skip, "skip", "s", p.Skip, "skip processing the `comma-separated tasks`")
 	flag.BoolVar(&p.NoColor, "no-color", p.NoColor, "disable colorizing output")
-	list := flag.Bool("list", false, "just list all targets")
+	list := flag.Bool("list", false, "list all targets")
 	flag.CommandLine.SetOutput(goyek.Output())
 	flag.Usage = usage
 	flag.Parse()
@@ -73,7 +73,7 @@ func Main(opts ...Option) {
 		color.NoColor()
 	}
 
-	var gopts []goyek.Option
+	gopts := make([]goyek.Option, 0, 2+len(p.Options))
 	if p.NoDeps {
 		gopts = append(gopts, goyek.NoDeps())
 	}
@@ -81,9 +81,7 @@ func Main(opts ...Option) {
 		skippedTasks := strings.Split(p.Skip, ",")
 		gopts = append(gopts, goyek.Skip(skippedTasks...))
 	}
-	for _, option := range p.Options {
-		gopts = append(gopts, option)
-	}
+	gopts = append(gopts, p.Options...)
 
 	goyek.SetUsage(usage)
 	goyek.SetLogger(&color.CodeLineLogger{})
@@ -91,8 +89,10 @@ func Main(opts ...Option) {
 }
 
 func usage() {
-	fmt.Println("Usage of build: [flags] [--] [tasks]")
+	_, _ = fmt.Fprintln(goyek.Output(), "Usage: ./goyek [flags] [--] [tasks]")
+	_, _ = fmt.Fprintln(goyek.Output())
 	goyek.Print()
-	fmt.Println("Flags:")
+	_, _ = fmt.Fprintln(goyek.Output())
+	_, _ = fmt.Fprintln(goyek.Output(), "Flags:")
 	flag.PrintDefaults()
 }
