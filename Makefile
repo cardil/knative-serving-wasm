@@ -1,19 +1,5 @@
 # Those are callable targets
-TASKS = \
-  build \
-  build-test \
-  clean \
-  deploy \
-  e2e \
-  images \
-  publish \
-  test \
-  tidy \
-  undeploy \
-  unit \
-  update \
-  update-codegen \
-  update-deps
+TASKS = $(shell go run ./build/ --list)
 
 .PHONY: all
 all: build
@@ -24,4 +10,4 @@ $(TASKS):
 
 .PHONY: help
 help:
-	@go run ./build/ -h
+	@go run ./build/ --help
