@@ -22,15 +22,16 @@ import (
 	"knative.dev/pkg/apis"
 )
 
-// Validate implements apis.Validatable
+// Validate implements apis.Validatable.
 func (as *WasmModule) Validate(ctx context.Context) *apis.FieldError {
 	return as.Spec.Validate(ctx).ViaField("spec")
 }
 
-// Validate implements apis.Validatable
-func (ass *WasmModuleSpec) Validate(ctx context.Context) *apis.FieldError {
+// Validate implements apis.Validatable.
+func (ass *WasmModuleSpec) Validate(_ context.Context) *apis.FieldError {
 	if ass.ServiceName == "" {
 		return apis.ErrMissingField("serviceName")
 	}
+
 	return nil
 }

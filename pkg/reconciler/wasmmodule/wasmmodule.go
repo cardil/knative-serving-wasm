@@ -43,37 +43,41 @@ type Reconciler struct {
 	ServiceLister corev1listers.ServiceLister
 }
 
-// Check that our Reconciler implements Interface
+// Check that our Reconciler implements Interface.
 var _ apireconciler.Interface = (*Reconciler)(nil)
 
 // ReconcileKind implements Interface.ReconcileKind.
-func (r *Reconciler) ReconcileKind(ctx context.Context, o *api.WasmModule) reconciler.Event {
+func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) reconciler.Event {
 	logger := logging.FromContext(ctx)
 
-	if err := r.Tracker.TrackReference(tracker.Reference{
+	err := r.Tracker.TrackReference(tracker.Reference{
 		APIVersion: "v1",
 		Kind:       "Service",
-		Name:       o.Spec.ServiceName,
-		Namespace:  o.Namespace,
-	}, o); err != nil {
-		logger.Errorf("Error tracking service %s: %v", o.Spec.ServiceName, err)
+		Name:       module.Spec.ServiceName,
+		Namespace:  module.Namespace,
+	}, module)
+	if err != nil {
+		logger.Errorf("Error tracking service %s: %v", module.Spec.ServiceName, err)
+
 		return err
 	}
 
-	if _, err := r.ServiceLister.Services(o.Namespace).Get(o.Spec.ServiceName); apierrs.IsNotFound(err) {
-		logger.Info("Service does not yet exist:", o.Spec.ServiceName)
-		o.Status.MarkServiceUnavailable(o.Spec.ServiceName)
+	if _, err := r.ServiceLister.Services(module.Namespace).Get(module.Spec.ServiceName); apierrs.IsNotFound(err) {
+		logger.Info("Service does not yet exist:", module.Spec.ServiceName)
+		module.Status.MarkServiceUnavailable(module.Spec.ServiceName)
+
 		return nil
 	} else if err != nil {
-		logger.Errorf("Error reconciling service %s: %v", o.Spec.ServiceName, err)
+		logger.Errorf("Error reconciling service %s: %v", module.Spec.ServiceName, err)
+
 		return err
 	}
 
-	o.Status.MarkServiceAvailable()
-	o.Status.Address = &duckv1.Addressable{
+	module.Status.MarkServiceAvailable()
+	module.Status.Address = &duckv1.Addressable{
 		URL: &apis.URL{
 			Scheme: "http",
-			Host:   network.GetServiceHostname(o.Spec.ServiceName, o.Namespace),
+			Host:   network.GetServiceHostname(module.Spec.ServiceName, module.Namespace),
 		},
 	}
 

@@ -20,7 +20,7 @@ import (
 	"context"
 )
 
-// SetDefaults implements apis.Defaultable
-func (as *WasmModule) SetDefaults(ctx context.Context) {
+// SetDefaults implements apis.Defaultable.
+func (as *WasmModule) SetDefaults(_ context.Context) {
 	// Nothing to default.
 }

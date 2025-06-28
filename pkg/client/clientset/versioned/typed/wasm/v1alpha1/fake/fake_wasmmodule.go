@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Knative Authors
+Copyright 2025 The Knative Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,123 +19,32 @@ limitations under the License.
 package fake
 
 import (
-	"context"
-
 	v1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
-	types "k8s.io/apimachinery/pkg/types"
-	watch "k8s.io/apimachinery/pkg/watch"
-	testing "k8s.io/client-go/testing"
+	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/client/clientset/versioned/typed/wasm/v1alpha1"
+	gentype "k8s.io/client-go/gentype"
 )
 
-// FakeWasmModules implements WasmModuleInterface
-type FakeWasmModules struct {
+// fakeWasmModules implements WasmModuleInterface
+type fakeWasmModules struct {
+	*gentype.FakeClientWithList[*v1alpha1.WasmModule, *v1alpha1.WasmModuleList]
 	Fake *FakeWasmV1alpha1
-	ns   string
 }
 
-var wasmmodulesResource = v1alpha1.SchemeGroupVersion.WithResource("wasmmodules")
-
-var wasmmodulesKind = v1alpha1.SchemeGroupVersion.WithKind("WasmModule")
-
-// Get takes name of the wasmModule, and returns the corresponding wasmModule object, and an error if there is any.
-func (c *FakeWasmModules) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.WasmModule, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(wasmmodulesResource, c.ns, name), &v1alpha1.WasmModule{})
-
-	if obj == nil {
-		return nil, err
+func newFakeWasmModules(fake *FakeWasmV1alpha1, namespace string) wasmv1alpha1.WasmModuleInterface {
+	return &fakeWasmModules{
+		gentype.NewFakeClientWithList[*v1alpha1.WasmModule, *v1alpha1.WasmModuleList](
+			fake.Fake,
+			namespace,
+			v1alpha1.SchemeGroupVersion.WithResource("wasmmodules"),
+			v1alpha1.SchemeGroupVersion.WithKind("WasmModule"),
+			func() *v1alpha1.WasmModule { return &v1alpha1.WasmModule{} },
+			func() *v1alpha1.WasmModuleList { return &v1alpha1.WasmModuleList{} },
+			func(dst, src *v1alpha1.WasmModuleList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.WasmModuleList) []*v1alpha1.WasmModule { return gentype.ToPointerSlice(list.Items) },
+			func(list *v1alpha1.WasmModuleList, items []*v1alpha1.WasmModule) {
+				list.Items = gentype.FromPointerSlice(items)
+			},
+		),
+		fake,
 	}
-	return obj.(*v1alpha1.WasmModule), err
-}
-
-// List takes label and field selectors, and returns the list of WasmModules that match those selectors.
-func (c *FakeWasmModules) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.WasmModuleList, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewListAction(wasmmodulesResource, wasmmodulesKind, c.ns, opts), &v1alpha1.WasmModuleList{})
-
-	if obj == nil {
-		return nil, err
-	}
-
-	label, _, _ := testing.ExtractFromListOptions(opts)
-	if label == nil {
-		label = labels.Everything()
-	}
-	list := &v1alpha1.WasmModuleList{ListMeta: obj.(*v1alpha1.WasmModuleList).ListMeta}
-	for _, item := range obj.(*v1alpha1.WasmModuleList).Items {
-		if label.Matches(labels.Set(item.Labels)) {
-			list.Items = append(list.Items, item)
-		}
-	}
-	return list, err
-}
-
-// Watch returns a watch.Interface that watches the requested wasmModules.
-func (c *FakeWasmModules) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(wasmmodulesResource, c.ns, opts))
-
-}
-
-// Create takes the representation of a wasmModule and creates it.  Returns the server's representation of the wasmModule, and an error, if there is any.
-func (c *FakeWasmModules) Create(ctx context.Context, wasmModule *v1alpha1.WasmModule, opts v1.CreateOptions) (result *v1alpha1.WasmModule, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(wasmmodulesResource, c.ns, wasmModule), &v1alpha1.WasmModule{})
-
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.WasmModule), err
-}
-
-// Update takes the representation of a wasmModule and updates it. Returns the server's representation of the wasmModule, and an error, if there is any.
-func (c *FakeWasmModules) Update(ctx context.Context, wasmModule *v1alpha1.WasmModule, opts v1.UpdateOptions) (result *v1alpha1.WasmModule, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(wasmmodulesResource, c.ns, wasmModule), &v1alpha1.WasmModule{})
-
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.WasmModule), err
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *FakeWasmModules) UpdateStatus(ctx context.Context, wasmModule *v1alpha1.WasmModule, opts v1.UpdateOptions) (*v1alpha1.WasmModule, error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewUpdateSubresourceAction(wasmmodulesResource, "status", c.ns, wasmModule), &v1alpha1.WasmModule{})
-
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.WasmModule), err
-}
-
-// Delete takes name of the wasmModule and deletes it. Returns an error if one occurs.
-func (c *FakeWasmModules) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	_, err := c.Fake.
-		Invokes(testing.NewDeleteActionWithOptions(wasmmodulesResource, c.ns, name, opts), &v1alpha1.WasmModule{})
-
-	return err
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *FakeWasmModules) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(wasmmodulesResource, c.ns, listOpts)
-
-	_, err := c.Fake.Invokes(action, &v1alpha1.WasmModuleList{})
-	return err
-}
-
-// Patch applies the patch and returns the patched wasmModule.
-func (c *FakeWasmModules) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.WasmModule, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(wasmmodulesResource, c.ns, name, pt, data, subresources...), &v1alpha1.WasmModule{})
-
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.WasmModule), err
 }
