@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
     let engine = Engine::new(&config)?;
 
     // Fetch and decode the Wasm in OCI image
-    let wasm = fetch_oci_image("docker.io/library/hello-world:latest").await?;
+    let wasm = fetch_oci_image("quay.io/cardil/knative/serving/wasm/example/reverse-text").await?;
 
     // Compile the component on the command line to machine code
     let component = Component::from_binary(&engine, &wasm)?;
@@ -150,6 +150,7 @@ impl WasiHttpView for MyClientState {
 }
 
 
+const OCI_WASM_MEDIA_TYPE: &str = "application/wasm";
 const WASM_MEDIA_TYPE: &str = "application/vnd.wasm.content.layer.v1+wasm";
 const WASM_MEDIA_TYPE_LEGACY: &str = "application/vnd.module.wasm.content.layer.v1+wasm";
 
@@ -162,7 +163,11 @@ async fn fetch_oci_image(imgname: &str) -> Result<Vec<u8>> {
     let imgref: Reference = imgname.parse()?;
     // TODO: use a real auth, taken from the K8s cluster
     let imgauth = &RegistryAuth::Anonymous;
-    let accpected_media_types = Vec::from([WASM_MEDIA_TYPE, WASM_MEDIA_TYPE_LEGACY]);
+    let accpected_media_types = Vec::from([
+        OCI_WASM_MEDIA_TYPE,
+        WASM_MEDIA_TYPE,
+        WASM_MEDIA_TYPE_LEGACY,
+    ]);
     let image = oci.pull(&imgref, imgauth, accpected_media_types).await?;
     if image.layers.len() != 1 {
         return Err(bad_num_of_layers_err().context(format!(

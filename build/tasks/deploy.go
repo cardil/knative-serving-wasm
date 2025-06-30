@@ -8,6 +8,7 @@ import (
 
 	"github.com/cardil/ghet/pkg/ghet/download"
 	"github.com/cardil/ghet/pkg/ghet/install"
+	"github.com/cardil/ghet/pkg/github"
 	"github.com/goyek/goyek/v2"
 	"github.com/goyek/x/cmd"
 )
@@ -72,12 +73,12 @@ func Images() goyek.Task {
 }
 
 func pushExamples(a *goyek.A) {
-	installWasmToOci(a)
+	installWkg(a)
 	tag := path.Join(os.Getenv(koDockerRepo), "example", "reverse-text")
 	wasm := path.Join("examples", "modules", "reverse-text",
 		"target", "wasm32-wasip2", "release", "reverse_text.wasm")
-	w2o := wasm2ociPath()
-	cmd.Exec(a, spaceJoin(w2o, "push", wasm, tag))
+	wkg := wkgPath()
+	cmd.Exec(a, spaceJoin(wkg, "oci", "push", tag, wasm))
 }
 
 func pushRunnerImage(a *goyek.A) {
@@ -109,14 +110,15 @@ func setupKoEnv(a *goyek.A) {
 	}
 }
 
-func installWasmToOci(a *goyek.A) {
+func installWkg(a *goyek.A) {
 	a.Helper()
 
-	plan := wasm2ociPlan()
+	plan := wkgPlan()
 	bin := plan.Asset.FileName.ToString()
 	pth := path.Join(plan.Destination, bin)
 	if _, err := os.Stat(pth); err == nil {
 		a.Log("Already installed: ", bin)
+
 		return
 	}
 
@@ -125,21 +127,22 @@ func installWasmToOci(a *goyek.A) {
 	}
 }
 
-func wasm2ociPlan() download.Args {
-	binSpec := "engineerd/wasm-to-oci"
+func wkgPlan() download.Args {
+	binSpec := "bytecodealliance/wasm-pkg-tools@v0.11.0"
 	destination := path.Join("build", "output", "tools")
 	p := download.Args{
 		Args:        install.Parse(binSpec),
 		Destination: destination,
 	}
-	p.Tag = "v0.1.2"
+	p.FileName = github.NewFileName("wkg")
 
 	return p
 }
 
-func wasm2ociPath() string {
-	plan := wasm2ociPlan()
+func wkgPath() string {
+	plan := wkgPlan()
 	bin := plan.Asset.FileName.ToString()
+
 	return path.Join(plan.Destination, bin)
 }
 
