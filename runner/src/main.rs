@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store};
-use wasmtime_wasi::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::p2::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::bindings::http::types::Scheme;
 use wasmtime_wasi_http::bindings::ProxyPre;
 use wasmtime_wasi_http::body::HyperOutgoingBody;
@@ -30,7 +30,8 @@ async fn main() -> Result<()> {
     // component that we have. This will make per-request instantiation
     // much quicker.
     let mut linker = Linker::new(&engine);
-    wasmtime_wasi_http::add_to_linker_async(&mut linker)?;
+    wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+    wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
     let pre = ProxyPre::new(linker.instantiate_pre(&component)?)?;
 
     // Prepare our server state and start listening for connections.
