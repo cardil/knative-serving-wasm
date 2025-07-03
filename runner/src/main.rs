@@ -1,3 +1,4 @@
+use std::env;
 use anyhow::{bail, Error, Result};
 use hyper::server::conn::http1;
 use oci_distribution::secrets::RegistryAuth;
@@ -20,8 +21,10 @@ async fn main() -> Result<()> {
     config.async_support(true);
     let engine = Engine::new(&config)?;
 
+    let imgname = env::var("IMAGE")?;
+
     // Fetch and decode the Wasm in OCI image
-    let wasm = fetch_oci_image("quay.io/cardil/knative/serving/wasm/example/reverse-text").await?;
+    let wasm = fetch_oci_image(imgname.as_str()).await?;
 
     // Compile the component on the command line to machine code
     let component = Component::from_binary(&engine, &wasm)?;
@@ -36,7 +39,9 @@ async fn main() -> Result<()> {
 
     // Prepare our server state and start listening for connections.
     let server = Arc::new(KnativeGuestServer { pre });
-    let listener = TcpListener::bind("127.0.0.1:8000").await?;
+    let port = env::var("PORT").unwrap_or("8000".to_string());
+    let bind = format!("127.0.0.1:{}", port);
+    let listener = TcpListener::bind(bind).await?;
     println!("Listening on {}", listener.local_addr()?);
 
     loop {

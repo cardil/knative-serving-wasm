@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"context"
 
+	"github.com/distribution/reference"
 	"knative.dev/pkg/apis"
 )
 
@@ -29,9 +30,26 @@ func (as *WasmModule) Validate(ctx context.Context) *apis.FieldError {
 
 // Validate implements apis.Validatable.
 func (ass *WasmModuleSpec) Validate(_ context.Context) *apis.FieldError {
+	var errs *apis.FieldError
+
 	if ass.ServiceName == "" {
-		return apis.ErrMissingField("serviceName")
+		//goland:noinspection GoDfaNilDereference
+		errs = errs.Also(apis.ErrMissingField("serviceName"))
 	}
 
-	return nil
+	imageFieldPath := "source.image"
+	// A WasmModule must specify its source. The 'source.image' is the field
+	// that points to the OCI image containing the Wasm module.
+	if ass.Source.Image == "" {
+		//goland:noinspection GoDfaNilDereference
+		errs = errs.Also(apis.ErrMissingField(imageFieldPath))
+	}
+
+	// TODO: validate remote registry for accessibility of parsed ref
+	if _, err := reference.Parse(ass.Source.Image); err != nil {
+		//goland:noinspection GoDfaNilDereference
+		errs = errs.Also(apis.ErrInvalidValue(ass.Source.Image, imageFieldPath, err.Error()))
+	}
+
+	return errs
 }

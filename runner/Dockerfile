@@ -6,7 +6,7 @@ COPY . .
 
 RUN cargo build --release
 
-FROM gcr.io/distroless/static
+FROM gcr.io/distroless/cc-debian12
 
 COPY --from=builder /code/target/release/runner /usr/bin/wasm-runner
 
