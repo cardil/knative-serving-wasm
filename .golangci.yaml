@@ -11,6 +11,7 @@ linters:
     - depguard
     - ireturn
     - wsl
+    - godox
   exclusions:
     generated: lax
     presets:

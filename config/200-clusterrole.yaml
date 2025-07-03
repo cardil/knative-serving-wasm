@@ -74,12 +74,12 @@ rules:
   # WasmModule tracks services, so it needs to be able to list
   # and watch those in whatever namespace folks create those CRDs in
   # to do its job.
-  - apiGroups: [""]
+  - apiGroups: ["serving.knative.dev"]
     resources: ["services"]
     verbs: ["get", "list", "watch"]
 
   # SimpleDeployment creates and manages Pods, so it needs broad
   # permissions on pods
-  - apiGroups: [""]
-    resources: ["pods"]
+  - apiGroups: ["serving.knative.dev"]
+    resources: ["services"]
     verbs: ["create", "get", "list", "update", "delete", "watch"]

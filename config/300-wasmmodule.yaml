@@ -64,10 +64,22 @@ spec:
               type: object
               required:
                 - serviceName
+                - source
               properties:
                 serviceName:
-                  description: ServiceName holds the name of the Kubernetes Service to expose as an "addressable".
+                  description: ServiceName holds the name of the Knative Service to expose as an "addressable".
                   type: string
+                source:
+                  description: Source define the WASM source of the module
+                  type: object
+                  required:
+                    - image
+                  properties:
+                    image:
+                      description: |-
+                        Image is the container image where the WASM module is located.
+                        This image must contain the WASM module distributed as OCI artifact.
+                      type: string
             status:
               description: Status communicates the observed state of the WasmModule (from the controller).
               type: object

@@ -19,13 +19,15 @@ package wasmmodule
 import (
 	"context"
 
-	corev1 "k8s.io/api/core/v1"
 	"knative.dev/pkg/configmap"
 	"knative.dev/pkg/controller"
+	"knative.dev/pkg/logging"
+	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
 
 	wasmmoduleinformer "github.com/cardil/knative-serving-wasm/pkg/client/injection/informers/wasm/v1alpha1/wasmmodule"
 	wasmmodulereconciler "github.com/cardil/knative-serving-wasm/pkg/client/injection/reconciler/wasm/v1alpha1/wasmmodule"
-	svcinformer "knative.dev/pkg/client/injection/kube/informers/core/v1/service"
+	svcclient "knative.dev/serving/pkg/client/injection/client"
+	svcinformer "knative.dev/serving/pkg/client/injection/informers/serving/v1/service"
 )
 
 // NewController creates a Reconciler and returns the result of NewImpl.
@@ -33,26 +35,33 @@ func NewController(
 	ctx context.Context,
 	_ configmap.Watcher,
 ) *controller.Impl {
+	log := logging.FromContext(ctx)
 	wasmmoduleInformer := wasmmoduleinformer.Get(ctx)
 	svcInformer := svcinformer.Get(ctx)
 
 	reconciler := &Reconciler{
 		ServiceLister: svcInformer.Lister(),
+		Client:        svcclient.Get(ctx).ServingV1(),
 	}
 	impl := wasmmodulereconciler.NewImpl(ctx, reconciler)
 	reconciler.Tracker = impl.Tracker
 
-	wasmmoduleInformer.Informer().AddEventHandler(controller.HandleAll(impl.Enqueue))
+	if _, err := wasmmoduleInformer.Informer().
+		AddEventHandler(controller.HandleAll(impl.Enqueue)); err != nil {
+		log.Fatal(err)
+	}
 
-	svcInformer.Informer().AddEventHandler(controller.HandleAll(
+	if _, err := svcInformer.Informer().AddEventHandler(controller.HandleAll(
 		// Call the tracker's OnChanged method, but we've seen the objects
 		// coming through this path missing TypeMeta, so ensure it is properly
 		// populated.
 		controller.EnsureTypeMeta(
 			reconciler.Tracker.OnChanged,
-			corev1.SchemeGroupVersion.WithKind("Service"),
+			servingv1.SchemeGroupVersion.WithKind("Service"),
 		),
-	))
+	)); err != nil {
+		log.Fatal(err)
+	}
 
 	return impl
 }

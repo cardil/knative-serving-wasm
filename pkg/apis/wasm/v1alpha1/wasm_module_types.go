@@ -51,10 +51,21 @@ var (
 	_ duckv1.KRShaped = (*WasmModule)(nil)
 )
 
+
 // WasmModuleSpec holds the desired state of the WasmModule (from the client).
 type WasmModuleSpec struct {
-	// ServiceName holds the name of the Kubernetes Service to expose as an "addressable".
+	// ServiceName holds the name of the Knative Service to expose as an "addressable".
 	ServiceName string `json:"serviceName"`
+
+	// Source define the WASM source of the module
+	Source ModuleSource `json:"source"`
+}
+
+// ModuleSource defines the source of the WASM module.
+type ModuleSource struct {
+	// Image is the container image where the WASM module is located.
+	// This image must contain the WASM module distributed as OCI artifact.
+	Image string `json:"image"`
 }
 
 const (
