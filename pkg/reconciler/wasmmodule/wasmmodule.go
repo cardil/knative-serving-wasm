@@ -74,6 +74,9 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) 
 
 			return err
 		}
+
+		// TODO: Track the OwnerReference to delete automatically.
+		//       See: https://github.com/cardil/knative-serving-wasm/pull/5#discussion_r2182598662
 	} else if err != nil {
 		log.Errorf("Error reconciling service %s: %v", module.Spec.ServiceName, err)
 
@@ -91,8 +94,10 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 
 	srv, err := r.Client.Services(module.Namespace).Create(ctx, &servingv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      module.Spec.ServiceName,
-			Namespace: module.Namespace,
+			Name:        module.Spec.ServiceName,
+			Namespace:   module.Namespace,
+			Labels:      module.Labels,
+			Annotations: module.Annotations,
 		},
 		Spec: servingv1.ServiceSpec{
 			ConfigurationSpec: servingv1.ConfigurationSpec{
