@@ -1,33 +1,74 @@
-use std::env;
-use anyhow::{bail, Error, Result};
+mod config;
+mod network;
+mod oci;
+mod server;
+
+use anyhow::Result;
 use hyper::server::conn::http1;
-use oci_distribution::secrets::RegistryAuth;
-use oci_distribution::{Client, Reference};
+use std::env;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use wasmtime::component::{Component, Linker, ResourceTable};
-use wasmtime::{Config, Engine, Store};
-use wasmtime_wasi::p2::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
-use wasmtime_wasi_http::bindings::http::types::Scheme;
+use wasmtime::component::{Component, Linker};
+use wasmtime::{Config, Engine};
 use wasmtime_wasi_http::bindings::ProxyPre;
-use wasmtime_wasi_http::body::HyperOutgoingBody;
 use wasmtime_wasi_http::io::TokioIo;
-use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
+
+use config::WasiConfig;
+use server::ServerState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load WASI configuration from environment
+    let wasi_config = WasiConfig::from_env()?;
+    
+    // Log the loaded configuration for debugging
+    println!("Loaded WASI configuration:");
+    println!("  Image: {}", wasi_config.image);
+    println!("  Args: {:?}", wasi_config.args);
+    println!("  Env vars: {} entries", wasi_config.env.len());
+    println!("  Volume mounts: {} entries", wasi_config.volume_mounts.len());
+    if let Some(memory) = wasi_config.resources.get_memory() {
+        println!("  Memory: {}", memory);
+    }
+    if let Some(cpu) = wasi_config.resources.get_cpu() {
+        println!("  CPU: {}", cpu);
+    }
+    if let Some(network) = &wasi_config.network {
+        println!("  Network:");
+        println!("    Inherit: {}", network.inherit);
+        println!("    Allow IP name lookup: {}", network.allow_ip_name_lookup);
+        println!("    TCP bind: {:?}", network.tcp_bind);
+        println!("    TCP connect: {:?}", network.tcp_connect);
+    } else {
+        println!("  Network: disabled");
+    }
+
     // Prepare the `Engine` for Wasmtime
     let mut config = Config::new();
     config.async_support(true);
+    
+    // Enable fuel consumption if CPU limit/request is configured
+    if wasi_config.resources.get_cpu().is_some() {
+        config.consume_fuel(true);
+    }
+    
     let engine = Engine::new(&config)?;
 
-    let imgname = env::var("IMAGE")?;
+    // Get image name from WASI_CONFIG or fall back to IMAGE env var
+    let imgname = if !wasi_config.image.is_empty() {
+        wasi_config.image.clone()
+    } else {
+        env::var("IMAGE")?
+    };
 
     // Fetch and decode the Wasm in OCI image
-    let wasm = fetch_oci_image(imgname.as_str()).await?;
+    println!("Fetching WASM module from: {}", imgname);
+    let wasm = oci::fetch_oci_image(&imgname).await?;
+    println!("WASM module fetched successfully ({} bytes)", wasm.len());
 
     // Compile the component on the command line to machine code
     let component = Component::from_binary(&engine, &wasm)?;
+    println!("WASM component compiled successfully");
 
     // Prepare the `ProxyPre` which is a pre-instantiated version of the
     // component that we have. This will make per-request instantiation
@@ -38,10 +79,10 @@ async fn main() -> Result<()> {
     let pre = ProxyPre::new(linker.instantiate_pre(&component)?)?;
 
     // Prepare our server state and start listening for connections.
-    let server = Arc::new(KnativeGuestServer { pre });
+    let server = Arc::new(ServerState::new(pre, wasi_config));
     let port = env::var("PORT").unwrap_or("8000".to_string());
     let bind = format!("127.0.0.1:{}", port);
-    let listener = TcpListener::bind(bind).await?;
+    let listener = TcpListener::bind(&bind).await?;
     println!("Listening on {}", listener.local_addr()?);
 
     loop {
@@ -67,121 +108,4 @@ async fn main() -> Result<()> {
             }
         });
     }
-}
-
-struct KnativeGuestServer {
-    pre: ProxyPre<MyClientState>,
-}
-
-impl KnativeGuestServer {
-    async fn handle_request(
-        &self,
-        req: hyper::Request<hyper::body::Incoming>,
-    ) -> Result<hyper::Response<HyperOutgoingBody>> {
-        // Create per-http-request state within a `Store` and prepare the
-        // initial resources  passed to the `handle` function.
-        let mut store = Store::new(
-            self.pre.engine(),
-            MyClientState {
-                table: ResourceTable::new(),
-                wasi: WasiCtxBuilder::new().inherit_stdio().build(),
-                http: WasiHttpCtx::new(),
-            },
-        );
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        let req = store.data_mut().new_incoming_request(Scheme::Http, req)?;
-        let out = store.data_mut().new_response_outparam(sender)?;
-        let pre = self.pre.clone();
-
-        // Run the http request itself in a separate task so the task can
-        // optionally continue to execute beyond after the initial
-        // headers/response code are sent.
-        let task = tokio::task::spawn(async move {
-            let proxy = pre.instantiate_async(&mut store).await?;
-
-            if let Err(e) = proxy
-                .wasi_http_incoming_handler()
-                .call_handle(store, req, out)
-                .await
-            {
-                return Err(e);
-            }
-
-            Ok(())
-        });
-
-        match receiver.await {
-            // If the client calls `response-outparam::set` then one of these
-            // methods will be called.
-            Ok(Ok(resp)) => Ok(resp),
-            Ok(Err(e)) => Err(e.into()),
-
-            // Otherwise the `sender` will get dropped along with the `Store`
-            // meaning that the oneshot will get disconnected and here we can
-            // inspect the `task` result to see what happened
-            Err(_) => {
-                let e = match task.await {
-                    Ok(Ok(())) => {
-                        bail!("guest never invoked `response-outparam::set` method")
-                    }
-                    Ok(Err(e)) => e,
-                    Err(e) => e.into(),
-                };
-                Err(e.context("guest never invoked `response-outparam::set` method"))
-            }
-        }
-    }
-}
-
-struct MyClientState {
-    wasi: WasiCtx,
-    http: WasiHttpCtx,
-    table: ResourceTable,
-}
-impl IoView for MyClientState {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-}
-impl WasiView for MyClientState {
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.wasi
-    }
-}
-
-impl WasiHttpView for MyClientState {
-    fn ctx(&mut self) -> &mut WasiHttpCtx {
-        &mut self.http
-    }
-}
-
-
-const OCI_WASM_MEDIA_TYPE: &str = "application/wasm";
-const WASM_MEDIA_TYPE: &str = "application/vnd.wasm.content.layer.v1+wasm";
-const WASM_MEDIA_TYPE_LEGACY: &str = "application/vnd.module.wasm.content.layer.v1+wasm";
-
-fn bad_num_of_layers_err() -> Error {
-    Error::msg("expected to have one layer")
-}
-
-async fn fetch_oci_image(imgname: &str) -> Result<Vec<u8>> {
-    let oci = Client::default();
-    let imgref: Reference = imgname.parse()?;
-    // TODO: use a real auth, taken from the K8s cluster
-    let imgauth = &RegistryAuth::Anonymous;
-    let accpected_media_types = Vec::from([
-        OCI_WASM_MEDIA_TYPE,
-        WASM_MEDIA_TYPE,
-        WASM_MEDIA_TYPE_LEGACY,
-    ]);
-    let image = oci.pull(&imgref, imgauth, accpected_media_types).await?;
-    if image.layers.len() != 1 {
-        return Err(bad_num_of_layers_err().context(format!(
-            "expected to have one layer, got {}",
-            image.layers.len()
-        )));
-    }
-    let wasm = image.layers.first().ok_or(bad_num_of_layers_err())?;
-
-    Ok(wasm.data.clone())
 }

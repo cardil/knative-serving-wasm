@@ -1720,6 +1720,8 @@ dependencies = [
  "anyhow",
  "hyper",
  "oci-distribution",
+ "serde",
+ "serde_json",
  "tokio",
  "wasmtime",
  "wasmtime-wasi",

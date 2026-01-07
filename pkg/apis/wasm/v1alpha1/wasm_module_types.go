@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
@@ -51,21 +52,93 @@ var (
 	_ duckv1.KRShaped = (*WasmModule)(nil)
 )
 
-
 // WasmModuleSpec holds the desired state of the WasmModule (from the client).
+// Mirrors corev1.Container structure where applicable.
+// Stdio is always inherited from the host process.
 type WasmModuleSpec struct {
-	// ServiceName holds the name of the Knative Service to expose as an "addressable".
-	ServiceName string `json:"serviceName"`
+	// Image is the OCI artifact containing the WASM module.
+	// Required field.
+	Image string `json:"image"`
 
-	// Source define the WASM source of the module
-	Source ModuleSource `json:"source"`
+	// Args are command line arguments passed to the WASM module.
+	// +optional
+	Args []string `json:"args,omitempty"`
+
+	// Env is a list of environment variables to set in the WASM module.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// VolumeMounts describes volumes to mount as WASI preopened directories.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+
+	// Volumes defines the volumes that can be mounted.
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// Resources specifies compute resource requirements.
+	// requests.memory and limits.memory map to WASM memory limits.
+	// limits.cpu is converted to fuel units for execution limiting.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Network specifies network access configuration for WASI sockets.
+	// By default, network access is disabled.
+	// +optional
+	Network *NetworkSpec `json:"network,omitempty"`
 }
 
-// ModuleSource defines the source of the WASM module.
-type ModuleSource struct {
-	// Image is the container image where the WASM module is located.
-	// This image must contain the WASM module distributed as OCI artifact.
-	Image string `json:"image"`
+// NetworkSpec specifies network access configuration for the WASM module.
+// Address patterns support both IP addresses and hostnames.
+// Format: "host:port" - host can be IP or hostname.
+// Wildcards: "*:port", "host:*", "*:*"
+type NetworkSpec struct {
+	// Inherit indicates whether to inherit the host's full network stack.
+	// When true, all network operations are allowed.
+	// Maps to WasiCtxBuilder::inherit_network().
+	// Defaults to false.
+	// +optional
+	Inherit bool `json:"inherit,omitempty"`
+
+	// AllowIpNameLookup enables DNS resolution.
+	// Maps to WasiCtxBuilder::allow_ip_name_lookup().
+	// Defaults to true when Network is specified.
+	// +optional
+	AllowIpNameLookup *bool `json:"allowIpNameLookup,omitempty"`
+
+	// Tcp specifies TCP socket permissions.
+	// +optional
+	Tcp *TcpSpec `json:"tcp,omitempty"`
+
+	// Udp specifies UDP socket permissions.
+	// +optional
+	Udp *UdpSpec `json:"udp,omitempty"`
+}
+
+// TcpSpec specifies TCP socket permissions.
+type TcpSpec struct {
+	// Bind is a list of address patterns allowed for TCP bind.
+	// +optional
+	Bind []string `json:"bind,omitempty"`
+
+	// Connect is a list of address patterns allowed for TCP connect.
+	// +optional
+	Connect []string `json:"connect,omitempty"`
+}
+
+// UdpSpec specifies UDP socket permissions.
+type UdpSpec struct {
+	// Bind is a list of address patterns allowed for UDP bind.
+	// +optional
+	Bind []string `json:"bind,omitempty"`
+
+	// Connect is a list of address patterns allowed for UDP connect.
+	// +optional
+	Connect []string `json:"connect,omitempty"`
+
+	// Outgoing is a list of address patterns allowed for UDP outgoing datagrams.
+	// +optional
+	Outgoing []string `json:"outgoing,omitempty"`
 }
 
 const (

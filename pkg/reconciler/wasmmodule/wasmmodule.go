@@ -18,18 +18,27 @@ package wasmmodule
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	api "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 	apireconciler "github.com/cardil/knative-serving-wasm/pkg/client/injection/reconciler/wasm/v1alpha1/wasmmodule"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/reconciler"
 	"knative.dev/pkg/tracker"
 	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	servingv1client "knative.dev/serving/pkg/client/clientset/versioned/typed/serving/v1"
 	servingv1listers "knative.dev/serving/pkg/client/listers/serving/v1"
+)
+
+var (
+	// DefaultRunnerImage is the default image for the WASM runner.
+	// Can be overridden at build time with -ldflags "-X pkg/reconciler/wasmmodule.DefaultRunnerImage=..."
+	DefaultRunnerImage = "quay.io/cardil/knative/serving/wasm/runner"
 )
 
 // Reconciler implements apireconciler.Interface for
@@ -53,32 +62,32 @@ var _ apireconciler.Interface = (*Reconciler)(nil)
 func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) reconciler.Event {
 	log := logging.FromContext(ctx)
 
+	// Use metadata.name as service name
+	serviceName := module.Name
+
 	if err := r.Tracker.TrackReference(tracker.Reference{
 		APIVersion: servingv1.SchemeGroupVersion.String(),
 		Kind:       "Service",
-		Name:       module.Spec.ServiceName,
+		Name:       serviceName,
 		Namespace:  module.Namespace,
 	}, module); err != nil {
-		log.Errorf("Error tracking service %s: %v", module.Spec.ServiceName, err)
+		log.Errorf("Error tracking service %s: %v", serviceName, err)
 
 		return err
 	}
 
-	srv, err := r.ServiceLister.Services(module.Namespace).Get(module.Spec.ServiceName)
+	srv, err := r.ServiceLister.Services(module.Namespace).Get(serviceName)
 
 	if apierrs.IsNotFound(err) {
-		log.Info("Service does not exist. Creating: ", module.Spec.ServiceName)
+		log.Info("Service does not exist. Creating: ", serviceName)
 
 		if srv, err = r.createService(ctx, module); err != nil {
-			module.Status.MarkServiceUnavailable(module.Spec.ServiceName)
+			module.Status.MarkServiceUnavailable(serviceName)
 
 			return err
 		}
-
-		// TODO: Track the OwnerReference to delete automatically.
-		//       See: https://github.com/cardil/knative-serving-wasm/pull/5#discussion_r2182598662
 	} else if err != nil {
-		log.Errorf("Error reconciling service %s: %v", module.Spec.ServiceName, err)
+		log.Errorf("Error reconciling service %s: %v", serviceName, err)
 
 		return err
 	}
@@ -92,25 +101,56 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) 
 func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) (*servingv1.Service, error) {
 	log := logging.FromContext(ctx)
 
+	// Use metadata.name as service name
+	serviceName := module.Name
+
+	// Build WASI config for the runner
+	wasiConfig, err := buildRunnerConfig(module)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build runner config: %w", err)
+	}
+
+	// Prepare environment variables
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "IMAGE",
+			Value: module.Spec.Image,
+		},
+		{
+			Name:  "WASI_CONFIG",
+			Value: wasiConfig,
+		},
+	}
+
+	// Build container spec
+	container := corev1.Container{
+		Image:        DefaultRunnerImage,
+		Env:          envVars,
+		VolumeMounts: module.Spec.VolumeMounts,
+		Resources:    module.Spec.Resources,
+	}
+
 	srv, err := r.Client.Services(module.Namespace).Create(ctx, &servingv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        module.Spec.ServiceName,
+			Name:        serviceName,
 			Namespace:   module.Namespace,
 			Labels:      module.Labels,
 			Annotations: module.Annotations,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(module, schema.GroupVersionKind{
+					Group:   "wasm.knative.dev",
+					Version: "v1alpha1",
+					Kind:    "WasmModule",
+				}),
+			},
 		},
 		Spec: servingv1.ServiceSpec{
 			ConfigurationSpec: servingv1.ConfigurationSpec{
 				Template: servingv1.RevisionTemplateSpec{
 					Spec: servingv1.RevisionSpec{
 						PodSpec: corev1.PodSpec{
-							Containers: []corev1.Container{{
-								Image: "quay.io/cardil/knative/serving/wasm/runner",
-								Env: []corev1.EnvVar{{
-									Name:  "IMAGE",
-									Value: module.Spec.Source.Image,
-								}},
-							}},
+							Containers: []corev1.Container{container},
+							Volumes:    module.Spec.Volumes,
 						},
 					},
 				},
@@ -119,8 +159,128 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 	}, metav1.CreateOptions{})
 
 	if err != nil {
-		log.Errorf("Error creating kservice %s: %v", module.Spec.ServiceName, err)
+		log.Errorf("Error creating kservice %s: %v", serviceName, err)
 	}
 
 	return srv, err
+}
+
+// RunnerWasiConfig represents the WASI configuration passed to the runner.
+type RunnerWasiConfig struct {
+	Args    []string             `json:"args,omitempty"`
+	Env     map[string]string    `json:"env,omitempty"`
+	Dirs    []RunnerDirConfig    `json:"dirs,omitempty"`
+	Network *RunnerNetworkConfig `json:"network,omitempty"`
+}
+
+// RunnerDirConfig represents a directory mount configuration.
+type RunnerDirConfig struct {
+	HostPath  string `json:"hostPath"`
+	GuestPath string `json:"guestPath"`
+	ReadOnly  bool   `json:"readOnly"`
+}
+
+// RunnerNetworkConfig represents network configuration for the runner.
+type RunnerNetworkConfig struct {
+	Inherit           bool     `json:"inherit,omitempty"`
+	AllowIpNameLookup bool     `json:"allowIpNameLookup,omitempty"`
+	TcpBind           []string `json:"tcpBind,omitempty"`
+	TcpConnect        []string `json:"tcpConnect,omitempty"`
+	UdpBind           []string `json:"udpBind,omitempty"`
+	UdpConnect        []string `json:"udpConnect,omitempty"`
+	UdpOutgoing       []string `json:"udpOutgoing,omitempty"`
+}
+
+// buildRunnerConfig builds the WASI configuration JSON for the runner.
+func buildRunnerConfig(wm *api.WasmModule) (string, error) {
+	config := RunnerWasiConfig{
+		Args: wm.Spec.Args,
+	}
+
+	// Convert environment variables
+	if len(wm.Spec.Env) > 0 {
+		config.Env = make(map[string]string)
+		for _, env := range wm.Spec.Env {
+			if env.ValueFrom != nil {
+				// ValueFrom is not supported in this implementation
+				return "", fmt.Errorf("env var %s uses valueFrom which is not yet supported", env.Name)
+			}
+			config.Env[env.Name] = env.Value
+		}
+	}
+
+	// Convert volume mounts to directory configs
+	if len(wm.Spec.VolumeMounts) > 0 {
+		config.Dirs = make([]RunnerDirConfig, 0, len(wm.Spec.VolumeMounts))
+
+		// Build a map of volume names to their host paths
+		volumeMap := make(map[string]string)
+		for _, vol := range wm.Spec.Volumes {
+			if vol.HostPath != nil {
+				volumeMap[vol.Name] = vol.HostPath.Path
+			} else if vol.ConfigMap != nil {
+				// ConfigMaps are mounted at a standard location
+				volumeMap[vol.Name] = fmt.Sprintf("/var/run/configmaps/%s", vol.Name)
+			} else if vol.Secret != nil {
+				// Secrets are mounted at a standard location
+				volumeMap[vol.Name] = fmt.Sprintf("/var/run/secrets/%s", vol.Name)
+			} else if vol.PersistentVolumeClaim != nil {
+				// PVCs are mounted at a standard location
+				volumeMap[vol.Name] = fmt.Sprintf("/var/run/volumes/%s", vol.Name)
+			}
+		}
+
+		for _, vm := range wm.Spec.VolumeMounts {
+			hostPath, ok := volumeMap[vm.Name]
+			if !ok {
+				return "", fmt.Errorf("volume mount %s references undefined volume %s", vm.MountPath, vm.Name)
+			}
+
+			guestPath := vm.MountPath
+			if vm.SubPath != "" {
+				guestPath = fmt.Sprintf("%s/%s", vm.MountPath, vm.SubPath)
+			}
+
+			config.Dirs = append(config.Dirs, RunnerDirConfig{
+				HostPath:  hostPath,
+				GuestPath: guestPath,
+				ReadOnly:  vm.ReadOnly,
+			})
+		}
+	}
+
+	// Convert network configuration
+	if wm.Spec.Network != nil {
+		config.Network = &RunnerNetworkConfig{
+			Inherit: wm.Spec.Network.Inherit,
+		}
+
+		// Default allowIpNameLookup to true if not specified
+		if wm.Spec.Network.AllowIpNameLookup != nil {
+			config.Network.AllowIpNameLookup = *wm.Spec.Network.AllowIpNameLookup
+		} else {
+			config.Network.AllowIpNameLookup = true
+		}
+
+		// Convert TCP configuration
+		if wm.Spec.Network.Tcp != nil {
+			config.Network.TcpBind = wm.Spec.Network.Tcp.Bind
+			config.Network.TcpConnect = wm.Spec.Network.Tcp.Connect
+		}
+
+		// Convert UDP configuration
+		if wm.Spec.Network.Udp != nil {
+			config.Network.UdpBind = wm.Spec.Network.Udp.Bind
+			config.Network.UdpConnect = wm.Spec.Network.Udp.Connect
+			config.Network.UdpOutgoing = wm.Spec.Network.Udp.Outgoing
+		}
+	}
+
+	// Serialize to JSON
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal WASI config: %w", err)
+	}
+
+	return string(configJSON), nil
 }
