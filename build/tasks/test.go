@@ -26,6 +26,7 @@ func Unit() goyek.Task {
 			cmd.Exec(a, "test/presubmit-tests.sh --unit-tests")
 			cmd.Exec(a, "cargo test", cmd.Dir("runner"))
 			cmd.Exec(a, "cargo test", cmd.Dir("examples/modules/reverse-text"))
+			cmd.Exec(a, "cargo test", cmd.Dir("examples/modules/http-fetch"))
 		},
 	}
 }

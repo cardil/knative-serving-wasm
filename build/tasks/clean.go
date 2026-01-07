@@ -15,6 +15,7 @@ func Clean() goyek.Task {
 		Action: func(a *goyek.A) {
 			cmd.Exec(a, "cargo clean", cmd.Dir("runner"))
 			cmd.Exec(a, "cargo clean", cmd.Dir("examples/modules/reverse-text"))
+			cmd.Exec(a, "cargo clean", cmd.Dir("examples/modules/http-fetch"))
 			deleteDir(a, "build/output")
 		},
 	}

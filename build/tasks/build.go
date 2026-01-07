@@ -23,4 +23,6 @@ func buildExamples(a *goyek.A) {
 
 	cmd.Exec(a, "cargo build --target wasm32-wasip2 --release",
 		cmd.Dir("examples/modules/reverse-text"))
+	cmd.Exec(a, "cargo build --target wasm32-wasip2 --release",
+		cmd.Dir("examples/modules/http-fetch"))
 }
