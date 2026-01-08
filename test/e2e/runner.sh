@@ -37,6 +37,16 @@ function is_kind_cluster() {
   kubectl get nodes -o jsonpath='{.items[0].spec.providerID}' 2>/dev/null | grep -q '^kind://'
 }
 
+# Detect if we're running on a minikube cluster
+function is_minikube_cluster() {
+  kubectl config current-context 2>/dev/null | grep -q '^minikube$'
+}
+
+# Detect if we need port-forwarding (Kind or minikube)
+function needs_port_forward() {
+  is_kind_cluster || is_minikube_cluster
+}
+
 function start_latest_knative_serving() {
   local KNATIVE_NET_KOURIER_RELEASE
   KNATIVE_NET_KOURIER_RELEASE="$(get_latest_knative_yaml_source "net-kourier" "kourier")"
@@ -49,12 +59,11 @@ function start_latest_knative_serving() {
     --type merge \
     --patch '{"data":{"ingress.class":"kourier.ingress.networking.knative.dev"}}'
 
-  # For Kind clusters, configure special networking settings
-  if is_kind_cluster; then
-    echo "Detected Kind cluster - configuring for local development"
-
-    # Configure "No DNS" mode - uses Host header routing with example.com domain
-    # See: https://knative.dev/docs/install/yaml-install/serving/install-serving-with-yaml/#configure-dns
+  # For local clusters (Kind, minikube), configure "No DNS" mode
+  # This uses Host header routing with example.com domain instead of real DNS
+  # See: https://knative.dev/docs/install/yaml-install/serving/install-serving-with-yaml/#configure-dns
+  if needs_port_forward; then
+    echo "Detected local cluster - configuring 'No DNS' mode with example.com domain"
     kubectl patch configmap/config-domain \
       --namespace knative-serving \
       --type merge \
@@ -62,10 +71,10 @@ function start_latest_knative_serving() {
   fi
 }
 
-# Start port-forward to Kourier for Kind clusters
+# Start port-forward to Kourier for local clusters (Kind, minikube)
 # This allows the test runner on the host to access the ingress gateway
-function start_kind_port_forward() {
-  if is_kind_cluster; then
+function start_local_port_forward() {
+  if needs_port_forward; then
     echo "Starting port-forward to Kourier gateway (localhost:31080 -> kourier:80)"
     kubectl port-forward -n kourier-system service/kourier 31080:80 &
     PORT_FORWARD_PID=$!
@@ -80,7 +89,7 @@ function start_kind_port_forward() {
 }
 
 # Stop port-forward when done
-function stop_kind_port_forward() {
+function stop_local_port_forward() {
   if [[ -n "${PORT_FORWARD_PID:-}" ]]; then
     echo "Stopping port-forward (PID: $PORT_FORWARD_PID)"
     kill "$PORT_FORWARD_PID" 2>/dev/null || true
@@ -98,9 +107,9 @@ initialize "$@"
 
 set -Eeuo pipefail
 
-# Start port-forward for Kind clusters
-start_kind_port_forward
-trap stop_kind_port_forward EXIT
+# Start port-forward for local clusters (Kind, minikube)
+start_local_port_forward
+trap stop_local_port_forward EXIT
 
 # Run e2e tests with proper test reporting
 go_test_e2e -timeout 30m -tags=e2e ./test/e2e/... || fail_test 'knative-serving-wasm e2e tests'

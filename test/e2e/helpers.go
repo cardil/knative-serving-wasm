@@ -303,16 +303,6 @@ func (tc *TestContext) DeployEchoServer(ctx context.Context) error {
 	})
 }
 
-// isKindCluster checks if we're running on a Kind cluster by inspecting node providerID
-func (tc *TestContext) isKindCluster(ctx context.Context) bool {
-	nodes, err := tc.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil || len(nodes.Items) == 0 {
-		return false
-	}
-	// Kind nodes have providerID in format "kind://<provider>/<cluster-name>/<node-name>"
-	return strings.HasPrefix(nodes.Items[0].Spec.ProviderID, "kind://")
-}
-
 // GetIngressAddress returns the address of the Kourier ingress gateway.
 // Uses LOCAL_GATEWAY_ADDRESS env var if set (for port-forwarded local access).
 // Uses GATEWAY_OVERRIDE and GATEWAY_NAMESPACE_OVERRIDE env vars if set.
