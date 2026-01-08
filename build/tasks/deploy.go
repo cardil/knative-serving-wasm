@@ -21,15 +21,19 @@ func Deploy(f *goyek.Flow) {
 		Usage: "Deploys the controller onto Kubernetes",
 		Action: func(a *goyek.A) {
 			setupKoEnv(a)
-			cmd.Exec(a,
-				"go run github.com/google/ko@latest apply -B -f config/",
-			)
+			koApply(a)
 		},
 		Deps: goyek.Deps{
 			f.Define(Publish(f)),
 		},
 	})
 	f.Define(Undeploy())
+}
+
+// koApply applies Kubernetes manifests using ko
+func koApply(a *goyek.A) {
+	a.Helper()
+	cmd.Exec(a, "go run github.com/google/ko@latest apply -B -f config/")
 }
 
 func Undeploy() goyek.Task {
