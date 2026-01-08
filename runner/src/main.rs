@@ -81,7 +81,8 @@ async fn main() -> Result<()> {
     // Prepare our server state and start listening for connections.
     let server = Arc::new(ServerState::new(pre, wasi_config));
     let port = env::var("PORT").unwrap_or("8000".to_string());
-    let bind = format!("127.0.0.1:{}", port);
+    // Bind to all interfaces so queue-proxy sidecar and readiness probes can reach us
+    let bind = format!("0.0.0.0:{}", port);
     let listener = TcpListener::bind(&bind).await?;
     println!("Listening on {}", listener.local_addr()?);
 

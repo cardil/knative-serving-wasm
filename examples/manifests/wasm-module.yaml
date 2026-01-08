@@ -3,6 +3,4 @@ kind: WasmModule
 metadata:
   name: reverse-string
 spec:
-  serviceName: strreverse
-  source:
-    image: quay.io/cardil/knative/serving/wasm/example/reverse-text
+  image: quay.io/cardil/knative/serving/wasm/example/reverse-text

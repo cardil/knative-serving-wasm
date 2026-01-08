@@ -124,13 +124,28 @@ fn fetch_url(url: &str) -> Result<(u16, String), String> {
         match body_stream.read(8192) {
             Ok(chunk) => {
                 if chunk.is_empty() {
-                    break;
+                    // Empty chunk might mean data not ready yet, check if stream is done
+                    // by trying to subscribe and checking again
+                    let pollable = body_stream.subscribe();
+                    pollable.block();
+                    // Try one more read after blocking
+                    match body_stream.read(8192) {
+                        Ok(chunk2) if !chunk2.is_empty() => {
+                            body_bytes.extend_from_slice(&chunk2);
+                            continue;
+                        }
+                        _ => break, // Stream is truly done
+                    }
                 }
                 body_bytes.extend_from_slice(&chunk);
             }
             Err(_) => break,
         }
     }
+    drop(body_stream);
+
+    // Ensure we call finish on the incoming body to signal we're done
+    wasi::http::types::IncomingBody::finish(incoming_body);
 
     let body = String::from_utf8(body_bytes)
         .unwrap_or_else(|_| "<binary data>".to_string());

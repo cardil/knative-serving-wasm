@@ -27,6 +27,8 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"knative.dev/pkg/apis"
+	duckv1 "knative.dev/pkg/apis/duck/v1"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/reconciler"
 	"knative.dev/pkg/tracker"
@@ -92,8 +94,23 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) 
 		return err
 	}
 
-	module.Status.MarkServiceAvailable()
-	module.Status.Address = srv.Status.Address.DeepCopy()
+	// Only mark ready when the underlying Service is ready
+	// This ensures pods are running and Kourier has the route before tests can access it
+	readyCondition := srv.Status.GetCondition(apis.ConditionReady)
+	if readyCondition != nil && readyCondition.IsTrue() {
+		module.Status.MarkServiceAvailable()
+
+		// Use the external URL (srv.Status.URL) instead of internal address (srv.Status.Address)
+		// The external URL works with the Knative ingress (e.g., Kourier) and follows
+		// the configured domain (e.g., example.com for "No DNS" mode on Kind clusters)
+		if srv.Status.URL != nil {
+			module.Status.Address = &duckv1.Addressable{
+				URL: srv.Status.URL,
+			}
+		}
+	} else {
+		module.Status.MarkServiceUnavailable(serviceName)
+	}
 
 	return nil
 }

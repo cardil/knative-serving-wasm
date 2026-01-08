@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,9 +58,78 @@ type TestContext struct {
 
 // Cleanup runs all registered cleanup functions
 func (tc *TestContext) Cleanup() {
+	// Dump diagnostic info if test failed
+	if tc.T.Failed() {
+		tc.DumpDiagnostics()
+	}
+
 	for i := len(tc.CleanupFuncs) - 1; i >= 0; i-- {
 		tc.CleanupFuncs[i]()
 	}
+}
+
+// DumpDiagnostics logs important debugging information for failed tests
+func (tc *TestContext) DumpDiagnostics() {
+	ctx := context.Background()
+	tc.T.Logf("=== DIAGNOSTIC DUMP for namespace %s ===", tc.Namespace)
+
+	// Dump pods and their images
+	pods, err := tc.KubeClient.CoreV1().Pods(tc.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		tc.T.Logf("Failed to list pods: %v", err)
+	} else {
+		tc.T.Logf("Pods in namespace %s:", tc.Namespace)
+		for _, pod := range pods.Items {
+			tc.T.Logf("  Pod: %s (Phase: %s)", pod.Name, pod.Status.Phase)
+			for _, cs := range pod.Status.ContainerStatuses {
+				tc.T.Logf("    Container: %s (Ready: %v, Image: %s, ImageID: %s)",
+					cs.Name, cs.Ready, cs.Image, cs.ImageID)
+				if cs.State.Waiting != nil {
+					tc.T.Logf("      Waiting: %s - %s", cs.State.Waiting.Reason, cs.State.Waiting.Message)
+				}
+				if cs.State.Terminated != nil {
+					tc.T.Logf("      Terminated: %s - %s (Exit: %d)",
+						cs.State.Terminated.Reason, cs.State.Terminated.Message, cs.State.Terminated.ExitCode)
+				}
+			}
+		}
+	}
+
+	// Dump events
+	events, err := tc.KubeClient.CoreV1().Events(tc.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		tc.T.Logf("Failed to list events: %v", err)
+	} else {
+		tc.T.Logf("Recent events in namespace %s:", tc.Namespace)
+		for _, event := range events.Items {
+			tc.T.Logf("  %s: %s %s - %s",
+				event.InvolvedObject.Name, event.Type, event.Reason, event.Message)
+		}
+	}
+
+	// Dump pod logs for user-container
+	if pods != nil {
+		for _, pod := range pods.Items {
+			for _, container := range []string{"user-container", "queue-proxy"} {
+				logs, err := tc.KubeClient.CoreV1().Pods(tc.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+					Container: container,
+					TailLines: int64Ptr(50),
+				}).Do(ctx).Raw()
+				if err != nil {
+					tc.T.Logf("Failed to get %s logs for pod %s: %v", container, pod.Name, err)
+				} else {
+					tc.T.Logf("=== Logs from %s/%s (last 50 lines) ===\n%s", pod.Name, container, string(logs))
+				}
+			}
+		}
+	}
+
+	tc.T.Logf("=== END DIAGNOSTIC DUMP ===")
+}
+
+// int64Ptr returns a pointer to an int64
+func int64Ptr(i int64) *int64 {
+	return &i
 }
 
 // AddCleanup registers a cleanup function
@@ -94,7 +166,7 @@ func (tc *TestContext) CreateNamespace(ctx context.Context) error {
 	return nil
 }
 
-// WaitForWasmModuleReady waits for a WasmModule to become ready
+// WaitForWasmModuleReady waits for a WasmModule to become ready with a URL
 func (tc *TestContext) WaitForWasmModuleReady(ctx context.Context, name string) error {
 	tc.T.Logf("Waiting for WasmModule %s to be ready...", name)
 
@@ -105,14 +177,26 @@ func (tc *TestContext) WaitForWasmModuleReady(ctx context.Context, name string) 
 		}
 
 		// Check if Ready condition is True
+		ready := false
 		for _, cond := range wm.Status.Conditions {
 			if cond.Type == "Ready" {
 				if cond.Status == "True" {
-					tc.T.Logf("WasmModule %s is ready", name)
-					return true, nil
+					ready = true
+				} else {
+					tc.T.Logf("WasmModule %s not ready yet: %s - %s", name, cond.Reason, cond.Message)
+					return false, nil
 				}
-				tc.T.Logf("WasmModule %s not ready yet: %s - %s", name, cond.Reason, cond.Message)
 			}
+		}
+
+		// Also wait for the URL to be available
+		if ready && wm.Status.Address != nil && wm.Status.Address.URL != nil {
+			tc.T.Logf("WasmModule %s is ready with URL: %s", name, wm.Status.Address.URL.String())
+			return true, nil
+		}
+
+		if ready {
+			tc.T.Logf("WasmModule %s Ready condition is True but URL not yet available", name)
 		}
 
 		return false, nil
@@ -219,9 +303,148 @@ func (tc *TestContext) DeployEchoServer(ctx context.Context) error {
 	})
 }
 
-// HTTPGet performs an HTTP GET request and returns the response body
-func (tc *TestContext) HTTPGet(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// isKindCluster checks if we're running on a Kind cluster by inspecting node providerID
+func (tc *TestContext) isKindCluster(ctx context.Context) bool {
+	nodes, err := tc.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil || len(nodes.Items) == 0 {
+		return false
+	}
+	// Kind nodes have providerID in format "kind://<provider>/<cluster-name>/<node-name>"
+	return strings.HasPrefix(nodes.Items[0].Spec.ProviderID, "kind://")
+}
+
+// GetIngressAddress returns the address of the Kourier ingress gateway.
+// Uses LOCAL_GATEWAY_ADDRESS env var if set (for port-forwarded local access).
+// Uses GATEWAY_OVERRIDE and GATEWAY_NAMESPACE_OVERRIDE env vars if set.
+// For Kind/local clusters without LoadBalancer, uses NodePort access.
+// For cloud clusters, uses LoadBalancer IP.
+func (tc *TestContext) GetIngressAddress(ctx context.Context) (string, error) {
+	// Check for local gateway address (set by runner.sh for Kind port-forwarding)
+	if localAddr := os.Getenv("LOCAL_GATEWAY_ADDRESS"); localAddr != "" {
+		tc.T.Logf("Using LOCAL_GATEWAY_ADDRESS: %s", localAddr)
+		return localAddr, nil
+	}
+
+	// Determine gateway namespace and name from environment or defaults
+	gatewayNamespace := "kourier-system"
+	if ns := os.Getenv("GATEWAY_NAMESPACE_OVERRIDE"); ns != "" {
+		gatewayNamespace = ns
+	}
+	gatewayName := "kourier"
+	if name := os.Getenv("GATEWAY_OVERRIDE"); name != "" {
+		gatewayName = name
+	}
+
+	// Get the gateway service
+	svc, err := tc.KubeClient.CoreV1().Services(gatewayNamespace).Get(ctx, gatewayName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get gateway service %s/%s: %w", gatewayNamespace, gatewayName, err)
+	}
+
+	// Check for LoadBalancer external IP first (works for GKE, cloud clusters)
+	if len(svc.Status.LoadBalancer.Ingress) > 0 {
+		ingress := svc.Status.LoadBalancer.Ingress[0]
+		if ingress.IP != "" {
+			tc.T.Logf("Using LoadBalancer IP: %s", ingress.IP)
+			return ingress.IP, nil
+		}
+		if ingress.Hostname != "" {
+			tc.T.Logf("Using LoadBalancer hostname: %s", ingress.Hostname)
+			return ingress.Hostname, nil
+		}
+	}
+
+	// For local clusters (Kind, k3d, etc.) use NodePort approach
+	// Get the first node's internal IP
+	nodes, err := tc.KubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	if len(nodes.Items) == 0 {
+		return "", fmt.Errorf("no nodes found in cluster")
+	}
+
+	// Get node internal IP
+	var nodeIP string
+	for _, addr := range nodes.Items[0].Status.Addresses {
+		if addr.Type == corev1.NodeInternalIP {
+			nodeIP = addr.Address
+			break
+		}
+	}
+
+	if nodeIP == "" {
+		return "", fmt.Errorf("no internal IP found for node")
+	}
+
+	// Get NodePort for http port
+	for _, port := range svc.Spec.Ports {
+		if port.Name == "http2" || port.Port == 80 {
+			if port.NodePort > 0 {
+				tc.T.Logf("Using NodePort access: %s:%d", nodeIP, port.NodePort)
+				return fmt.Sprintf("%s:%d", nodeIP, port.NodePort), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no suitable port found in gateway service %s/%s", gatewayNamespace, gatewayName)
+}
+
+// HTTPGet performs an HTTP GET request to a WasmModule URL.
+// For local Kind clusters, it routes through the ingress with Host header.
+func (tc *TestContext) HTTPGet(ctx context.Context, targetURL string) (string, error) {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse URL: %w", err)
+	}
+
+	// Get the ingress address
+	ingressAddr, err := tc.GetIngressAddress(ctx)
+	if err != nil {
+		tc.T.Logf("Warning: Could not get ingress address, trying direct: %v", err)
+		// Fallback to direct request
+		return tc.directHTTPGet(ctx, targetURL)
+	}
+
+	// Build request URL using ingress address
+	requestURL := fmt.Sprintf("http://%s%s", ingressAddr, parsed.RequestURI())
+	tc.T.Logf("Making request to %s with Host: %s", requestURL, parsed.Host)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set Host header to route to the correct Knative service
+	req.Host = parsed.Host
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to perform request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		// Return the body for error messages (useful for debugging)
+		return string(body), fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	return string(body), nil
+}
+
+// directHTTPGet performs a direct HTTP GET request without routing through ingress
+func (tc *TestContext) directHTTPGet(ctx context.Context, targetURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}

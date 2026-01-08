@@ -11,14 +11,17 @@ fn bad_num_of_layers_err() -> Error {
 }
 
 /// Fetch a WASM module from an OCI registry.
-/// 
+///
 /// # Arguments
 /// * `imgname` - The OCI image reference (e.g., "ghcr.io/example/module:latest")
-/// 
+///              Can also include the "oci://" prefix which will be stripped.
+///
 /// # Returns
 /// The WASM module binary data
 pub async fn fetch_oci_image(imgname: &str) -> Result<Vec<u8>> {
     let oci = Client::default();
+    // Strip the oci:// prefix if present (used by Knative/WASI conventions)
+    let imgname = imgname.strip_prefix("oci://").unwrap_or(imgname);
     let imgref: Reference = imgname.parse()?;
     // TODO: use a real auth, taken from the K8s cluster
     let imgauth = &RegistryAuth::Anonymous;

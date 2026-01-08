@@ -11,6 +11,11 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const (
+	// E2ERunnerArgsEnv is the environment variable for passing args to the e2e runner
+	E2ERunnerArgsEnv = "E2E_RUNNER_ARGS"
+)
+
 func Test(f *goyek.Flow) {
 	f.Define(goyek.Task{
 		Name:  "test",
@@ -56,8 +61,10 @@ func E2e() goyek.Task {
 				return
 			}
 
-			// Set up IMAGE_BASENAME for e2e tests
+			// Set up IMAGE_BASENAME and KO_DOCKER_REPO for e2e tests
+			// This must be done before building images so they get tagged correctly
 			setupE2EImageBasename(a)
+			setupKoEnv(a)
 
 			// Build images
 			a.Log("Building images for e2e tests...")
@@ -71,12 +78,17 @@ func E2e() goyek.Task {
 
 			// Deploy controller
 			a.Log("Deploying controller...")
-			setupKoEnv(a)
 			koApply(a)
 
-			// Run e2e tests (includes both legacy and new Go tests)
-			a.Log("Running e2e tests...")
-			cmd.Exec(a, "test/presubmit-tests.sh --integration-tests")
+			// Run e2e tests using the Knative test runner
+			// E2E_RUNNER_ARGS controls behavior: --run-tests for local, other flags for CI
+			runnerArgs := os.Getenv(E2ERunnerArgsEnv)
+			if runnerArgs == "" {
+				// Default to --run-tests for local development (skips Boskos/GCP initialization)
+				runnerArgs = "--run-tests"
+			}
+			a.Logf("Running e2e tests with args: %s", runnerArgs)
+			cmd.Exec(a, "test/e2e/runner.sh "+runnerArgs)
 		},
 	}
 }

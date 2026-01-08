@@ -15,6 +15,19 @@ import (
 
 const koDockerRepo = "KO_DOCKER_REPO"
 
+// wasmModule represents a WASM module example
+type wasmModule struct {
+	name     string // module name (e.g., "reverse-text")
+	wasmFile string // wasm file name without extension (e.g., "reverse_text")
+}
+
+// wasmModules lists all example modules to build and push
+var wasmModules = []wasmModule{{
+	name: "reverse-text", wasmFile: "reverse_text",
+}, {
+	name: "http-fetch", wasmFile: "http_fetch",
+}}
+
 func Deploy(f *goyek.Flow) {
 	f.Define(goyek.Task{
 		Name:  "deploy",
@@ -33,7 +46,16 @@ func Deploy(f *goyek.Flow) {
 // koApply applies Kubernetes manifests using ko
 func koApply(a *goyek.A) {
 	a.Helper()
-	cmd.Exec(a, "go run github.com/google/ko@latest apply -B -f config/")
+
+	// Build ldflags to set the runner image at compile time using GOFLAGS
+	// See: https://ko.build/advanced/faq/#how-can-i-set-ldflags
+	runnerImage := path.Join(os.Getenv(koDockerRepo), "runner")
+	goflags := "-ldflags=-X=github.com/cardil/knative-serving-wasm/pkg/reconciler/wasmmodule.DefaultRunnerImage=" + runnerImage
+
+	cmd.Exec(a, spaceJoin(
+		"go", "run", "github.com/google/ko@latest", "apply",
+		"-B", "-f", "config/",
+	), cmd.Env("GOFLAGS", goflags))
 }
 
 func Undeploy() goyek.Task {
@@ -78,11 +100,15 @@ func Images() goyek.Task {
 
 func pushExamples(a *goyek.A) {
 	installWkg(a)
-	tag := path.Join(os.Getenv(koDockerRepo), "example", "reverse-text")
-	wasm := path.Join("examples", "modules", "reverse-text",
-		"target", "wasm32-wasip2", "release", "reverse_text.wasm")
 	wkg := wkgPath()
-	cmd.Exec(a, spaceJoin(wkg, "oci", "push", tag, wasm))
+	repo := os.Getenv(koDockerRepo)
+
+	for _, mod := range wasmModules {
+		tag := path.Join(repo, "example", mod.name)
+		wasm := path.Join("examples", "modules", mod.name,
+			"target", "wasm32-wasip2", "release", mod.wasmFile+".wasm")
+		cmd.Exec(a, spaceJoin(wkg, "oci", "push", tag, wasm))
+	}
 }
 
 func pushRunnerImage(a *goyek.A) {
