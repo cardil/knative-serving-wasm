@@ -1,7 +1,9 @@
 use wasi::http::types::{
-    Fields, IncomingRequest, OutgoingBody, OutgoingResponse, ResponseOutparam, Scheme,
+    Fields, IncomingRequest, OutgoingBody, OutgoingResponse, ResponseOutparam,
 };
 use wasi::exports;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 
 wasi::http::proxy::export!(Component);
 
@@ -25,7 +27,7 @@ fn handle_request(request: IncomingRequest) -> Result<OutgoingResponse, String> 
     // Extract target URL from X-Target-URL header or url query parameter
     let target_url = extract_target_url(&request)?;
 
-    // Make outbound HTTP request
+    // Make outbound HTTP request using standard library
     match fetch_url(&target_url) {
         Ok((status, body)) => {
             let json = format!(
@@ -75,107 +77,81 @@ fn extract_target_url(request: &IncomingRequest) -> Result<String, String> {
 }
 
 fn fetch_url(url: &str) -> Result<(u16, String), String> {
-    // Parse URL to extract components
-    let (scheme, authority, path) = parse_url(url)?;
-
-    // Create outgoing request
-    let headers = Fields::new();
-    let outgoing_request = wasi::http::types::OutgoingRequest::new(headers);
+    // Parse URL
+    let (scheme, host, port, path) = parse_url(url)?;
     
-    outgoing_request.set_scheme(Some(&scheme))
-        .map_err(|_| "Failed to set scheme".to_string())?;
-    outgoing_request.set_authority(Some(&authority))
-        .map_err(|_| "Failed to set authority".to_string())?;
-    outgoing_request.set_path_with_query(Some(&path))
-        .map_err(|_| "Failed to set path".to_string())?;
-
-    // Send request
-    let future_response = wasi::http::outgoing_handler::handle(outgoing_request, None)
-        .map_err(|e| format!("Failed to send request: {:?}", e))?;
-
-    // Wait for response
-    let incoming_response_result = match future_response.get() {
-        Some(result) => result,
-        None => {
-            future_response.subscribe().block();
-            future_response
-                .get()
-                .expect("Response should be ready")
-        }
-    };
-
-    let incoming_response = incoming_response_result
-        .map_err(|e| format!("Request failed: {:?}", e))?
-        .map_err(|e| format!("HTTP error: {:?}", e))?;
-
-    let status = incoming_response.status();
-
-    // Read response body
-    let incoming_body = incoming_response
-        .consume()
-        .map_err(|_| "Failed to consume response body".to_string())?;
-    
-    let body_stream = incoming_body
-        .stream()
-        .map_err(|_| "Failed to get body stream".to_string())?;
-
-    let mut body_bytes = Vec::new();
-    loop {
-        match body_stream.read(8192) {
-            Ok(chunk) => {
-                if chunk.is_empty() {
-                    // Empty chunk might mean data not ready yet, check if stream is done
-                    // by trying to subscribe and checking again
-                    let pollable = body_stream.subscribe();
-                    pollable.block();
-                    // Try one more read after blocking
-                    match body_stream.read(8192) {
-                        Ok(chunk2) if !chunk2.is_empty() => {
-                            body_bytes.extend_from_slice(&chunk2);
-                            continue;
-                        }
-                        _ => break, // Stream is truly done
-                    }
-                }
-                body_bytes.extend_from_slice(&chunk);
-            }
-            Err(_) => break,
-        }
+    if scheme != "http" {
+        return Err("Only HTTP is supported (not HTTPS)".to_string());
     }
-    drop(body_stream);
 
-    // Ensure we call finish on the incoming body to signal we're done
-    wasi::http::types::IncomingBody::finish(incoming_body);
+    // Connect using standard library TcpStream (WASI will intercept this)
+    let addr = format!("{}:{}", host, port);
+    let mut stream = TcpStream::connect(&addr)
+        .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;
 
-    let body = String::from_utf8(body_bytes)
-        .unwrap_or_else(|_| "<binary data>".to_string());
+    // Send HTTP request
+    let request = format!(
+        "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        path, host
+    );
+    
+    stream.write_all(request.as_bytes())
+        .map_err(|e| format!("Failed to send request: {}", e))?;
+
+    // Read response
+    let mut response_data = Vec::new();
+    stream.read_to_end(&mut response_data)
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    // Parse HTTP response
+    let mut headers = [httparse::EMPTY_HEADER; 64];
+    let mut response = httparse::Response::new(&mut headers);
+    
+    let body_offset = response.parse(&response_data)
+        .map_err(|e| format!("Failed to parse response: {:?}", e))?
+        .unwrap();
+
+    let status = response.code
+        .ok_or_else(|| "No status code in response".to_string())?;
+
+    let body = String::from_utf8_lossy(&response_data[body_offset..]).to_string();
 
     Ok((status, body))
 }
 
-fn parse_url(url: &str) -> Result<(Scheme, String, String), String> {
-    // Simple URL parser
+fn parse_url(url: &str) -> Result<(String, String, u16, String), String> {
     let url = url.trim();
     
-    let (scheme_str, rest) = if let Some(pos) = url.find("://") {
-        (&url[..pos], &url[pos + 3..])
+    // Extract scheme
+    let (scheme, rest) = if let Some(pos) = url.find("://") {
+        (url[..pos].to_lowercase(), &url[pos + 3..])
     } else {
         return Err("Invalid URL: missing scheme".to_string());
     };
 
-    let scheme = match scheme_str.to_lowercase().as_str() {
-        "http" => Scheme::Http,
-        "https" => Scheme::Https,
-        _ => return Err(format!("Unsupported scheme: {}", scheme_str)),
-    };
-
-    let (authority, path) = if let Some(pos) = rest.find('/') {
+    // Extract host and optional port
+    let (host_port, path) = if let Some(pos) = rest.find('/') {
         (&rest[..pos], &rest[pos..])
     } else {
         (rest, "/")
     };
 
-    Ok((scheme, authority.to_string(), path.to_string()))
+    let (host, port) = if let Some(pos) = host_port.find(':') {
+        let host = host_port[..pos].to_string();
+        let port = host_port[pos + 1..]
+            .parse::<u16>()
+            .map_err(|_| "Invalid port number".to_string())?;
+        (host, port)
+    } else {
+        let default_port = match scheme.as_str() {
+            "http" => 80,
+            "https" => 443,
+            _ => return Err(format!("Unsupported scheme: {}", scheme)),
+        };
+        (host_port.to_string(), default_port)
+    };
+
+    Ok((scheme, host, port, path.to_string()))
 }
 
 fn create_json_response(status: u16, json_body: String) -> OutgoingResponse {

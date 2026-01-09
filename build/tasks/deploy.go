@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -11,6 +12,7 @@ import (
 	"github.com/cardil/ghet/pkg/github"
 	"github.com/goyek/goyek/v2"
 	"github.com/goyek/x/cmd"
+	"go.yaml.in/yaml/v2"
 )
 
 const koDockerRepo = "KO_DOCKER_REPO"
@@ -45,17 +47,63 @@ func Deploy(f *goyek.Flow) {
 
 // koApply applies Kubernetes manifests using ko
 func koApply(a *goyek.A) {
+	koApplyWithFlags(a, false)
+}
+
+// koApplyE2E applies Kubernetes manifests using ko with e2e-specific settings
+func koApplyE2E(a *goyek.A) {
+	koApplyWithFlags(a, true)
+}
+
+// koApplyWithFlags applies Kubernetes manifests using ko with optional e2e flags
+func koApplyWithFlags(a *goyek.A, e2eMode bool) {
 	a.Helper()
 
-	// Build ldflags to set the runner image at compile time using GOFLAGS
-	// See: https://ko.build/advanced/faq/#how-can-i-set-ldflags
 	runnerImage := path.Join(os.Getenv(koDockerRepo), "runner")
-	goflags := "-ldflags=-X=github.com/cardil/knative-serving-wasm/pkg/reconciler/wasmmodule.DefaultRunnerImage=" + runnerImage
+
+	// Create ko config with ldflags
+	// GOFLAGS doesn't support multiple -X flags, so we use .ko.yaml instead
+	// See: https://ko.build/advanced/faq/#how-can-i-set-ldflags
+	type koBuild struct {
+		ID      string   `yaml:"id"`
+		Dir     string   `yaml:"dir"`
+		Ldflags []string `yaml:"ldflags"`
+	}
+	type koConfig struct {
+		Builds []koBuild `yaml:"builds"`
+	}
+
+	ldflags := []string{
+		fmt.Sprintf("-X github.com/cardil/knative-serving-wasm/pkg/reconciler/wasmmodule.DefaultRunnerImage=%s", runnerImage),
+	}
+
+	// For e2e tests, also set ImagePullPolicy=Always to ensure fresh images
+	if e2eMode {
+		ldflags = append(ldflags, "-X github.com/cardil/knative-serving-wasm/pkg/reconciler/wasmmodule.DefaultImagePullPolicy=Always")
+	}
+
+	config := koConfig{
+		Builds: []koBuild{{
+			ID:      "controller",
+			Dir:     "./cmd/controller",
+			Ldflags: ldflags,
+		}},
+	}
+
+	configYAML, err := yaml.Marshal(config)
+	if err != nil {
+		a.Fatalf("Failed to marshal ko config: %v", err)
+	}
+
+	koConfigPath := path.Join("build", "output", ".ko.yaml")
+	if err := os.WriteFile(koConfigPath, configYAML, 0644); err != nil {
+		a.Fatalf("Failed to write ko config: %v", err)
+	}
 
 	cmd.Exec(a, spaceJoin(
 		"go", "run", "github.com/google/ko@latest", "apply",
 		"-B", "-f", "config/",
-	), cmd.Env("GOFLAGS", goflags))
+	), cmd.Env("KO_CONFIG_PATH", koConfigPath))
 }
 
 func Undeploy() goyek.Task {

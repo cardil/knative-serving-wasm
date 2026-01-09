@@ -40,7 +40,12 @@ import (
 var (
 	// DefaultRunnerImage is the default image for the WASM runner.
 	// Can be overridden at build time with -ldflags "-X pkg/reconciler/wasmmodule.DefaultRunnerImage=..."
-	DefaultRunnerImage = "quay.io/cardil/knative/serving/wasm/runner"
+	DefaultRunnerImage = "ghcr.io/cardil/knative-serving-wasm/runner"
+
+	// DefaultImagePullPolicy is the default image pull policy for the WASM runner.
+	// Can be overridden at build time with -ldflags "-X pkg/reconciler/wasmmodule.DefaultImagePullPolicy=Always"
+	// Empty string means use Kubernetes default (IfNotPresent)
+	DefaultImagePullPolicy = ""
 )
 
 // Reconciler implements apireconciler.Interface for
@@ -145,6 +150,11 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 		Env:          envVars,
 		VolumeMounts: module.Spec.VolumeMounts,
 		Resources:    module.Spec.Resources,
+	}
+
+	// Set ImagePullPolicy if configured (e.g., "Always" for e2e tests)
+	if DefaultImagePullPolicy != "" {
+		container.ImagePullPolicy = corev1.PullPolicy(DefaultImagePullPolicy)
 	}
 
 	srv, err := r.Client.Services(module.Namespace).Create(ctx, &servingv1.Service{

@@ -193,6 +193,7 @@ fn build_wasi_ctx(config: &WasiConfig) -> Result<WasiCtx> {
     if let Some(network) = &config.network {
         if network.inherit {
             // Full network access
+            eprintln!("[WASM-RUNNER] Using inherit_network() for full network access");
             builder.inherit_network();
         } else {
             // Granular network permissions
@@ -203,12 +204,21 @@ fn build_wasi_ctx(config: &WasiConfig) -> Result<WasiCtx> {
                 || !network.udp_outgoing.is_empty();
             
             if has_any_permission {
+                eprintln!("[WASM-RUNNER] Using socket_addr_check with permissions:");
+                eprintln!("[WASM-RUNNER]   tcp_bind: {:?}", network.tcp_bind);
+                eprintln!("[WASM-RUNNER]   tcp_connect: {:?}", network.tcp_connect);
+                eprintln!("[WASM-RUNNER]   udp_bind: {:?}", network.udp_bind);
+                eprintln!("[WASM-RUNNER]   udp_connect: {:?}", network.udp_connect);
+                eprintln!("[WASM-RUNNER]   udp_outgoing: {:?}", network.udp_outgoing);
                 let check = network::build_socket_addr_check(network);
                 builder.socket_addr_check(check);
+            } else {
+                eprintln!("[WASM-RUNNER] No network permissions configured");
             }
         }
         
         // Set DNS resolution permission
+        eprintln!("[WASM-RUNNER] DNS resolution (allow_ip_name_lookup): {}", network.allow_ip_name_lookup);
         builder.allow_ip_name_lookup(network.allow_ip_name_lookup);
     }
     

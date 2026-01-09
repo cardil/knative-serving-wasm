@@ -78,7 +78,7 @@ func E2e() goyek.Task {
 
 			// Deploy controller
 			a.Log("Deploying controller...")
-			koApply(a)
+			koApplyE2E(a)
 
 			// Run e2e tests using the Knative test runner
 			// E2E_RUNNER_ARGS controls behavior: --run-tests for local, other flags for CI

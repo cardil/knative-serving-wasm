@@ -307,7 +307,7 @@ func (tc *TestContext) DeployEchoServer(ctx context.Context) error {
 // Uses LOCAL_GATEWAY_ADDRESS env var if set (for port-forwarded local access).
 // Uses GATEWAY_OVERRIDE and GATEWAY_NAMESPACE_OVERRIDE env vars if set.
 // For Kind/local clusters without LoadBalancer, uses NodePort access.
-// For cloud clusters, uses LoadBalancer IP.
+// For cloud clusters (GKE, etc.), waits for LoadBalancer IP.
 func (tc *TestContext) GetIngressAddress(ctx context.Context) (string, error) {
 	// Check for local gateway address (set by runner.sh for Kind port-forwarding)
 	if localAddr := os.Getenv("LOCAL_GATEWAY_ADDRESS"); localAddr != "" {
@@ -331,17 +331,34 @@ func (tc *TestContext) GetIngressAddress(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("failed to get gateway service %s/%s: %w", gatewayNamespace, gatewayName, err)
 	}
 
-	// Check for LoadBalancer external IP first (works for GKE, cloud clusters)
-	if len(svc.Status.LoadBalancer.Ingress) > 0 {
-		ingress := svc.Status.LoadBalancer.Ingress[0]
-		if ingress.IP != "" {
-			tc.T.Logf("Using LoadBalancer IP: %s", ingress.IP)
-			return ingress.IP, nil
+	// Check if this is a LoadBalancer service (cloud cluster)
+	if svc.Spec.Type == corev1.ServiceTypeLoadBalancer {
+		// Wait for LoadBalancer to be ready (up to 2 minutes)
+		tc.T.Log("Waiting for LoadBalancer to be ready...")
+		var lbAddr string
+		err := wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+			svc, err := tc.KubeClient.CoreV1().Services(gatewayNamespace).Get(ctx, gatewayName, metav1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
+			if len(svc.Status.LoadBalancer.Ingress) > 0 {
+				ingress := svc.Status.LoadBalancer.Ingress[0]
+				if ingress.IP != "" {
+					lbAddr = ingress.IP
+					return true, nil
+				}
+				if ingress.Hostname != "" {
+					lbAddr = ingress.Hostname
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+		if err != nil {
+			return "", fmt.Errorf("LoadBalancer not ready after 2 minutes: %w", err)
 		}
-		if ingress.Hostname != "" {
-			tc.T.Logf("Using LoadBalancer hostname: %s", ingress.Hostname)
-			return ingress.Hostname, nil
-		}
+		tc.T.Logf("Using LoadBalancer IP: %s", lbAddr)
+		return lbAddr, nil
 	}
 
 	// For local clusters (Kind, k3d, etc.) use NodePort approach
@@ -383,6 +400,7 @@ func (tc *TestContext) GetIngressAddress(ctx context.Context) (string, error) {
 
 // HTTPGet performs an HTTP GET request to a WasmModule URL.
 // For local Kind clusters, it routes through the ingress with Host header.
+// Retries on 404 errors to handle ingress propagation delays.
 func (tc *TestContext) HTTPGet(ctx context.Context, targetURL string) (string, error) {
 	parsed, err := url.Parse(targetURL)
 	if err != nil {
@@ -401,35 +419,57 @@ func (tc *TestContext) HTTPGet(ctx context.Context, targetURL string) (string, e
 	requestURL := fmt.Sprintf("http://%s%s", ingressAddr, parsed.RequestURI())
 	tc.T.Logf("Making request to %s with Host: %s", requestURL, parsed.Host)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set Host header to route to the correct Knative service
-	req.Host = parsed.Host
-
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to perform request: %w", err)
-	}
-	defer resp.Body.Close()
+	// Retry logic for 404 errors (ingress propagation delay)
+	var lastErr error
+	var lastBody string
+	retryInterval := 250 * time.Millisecond
+	retryTimeout := 4 * time.Second
+	deadline := time.Now().Add(retryTimeout)
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		// Return the body for error messages (useful for debugging)
+		// Set Host header to route to the correct Knative service
+		req.Host = parsed.Host
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to perform request: %w", err)
+			time.Sleep(retryInterval)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			return string(body), nil
+		}
+
+		// Retry on 404 (ingress not ready yet)
+		if resp.StatusCode == http.StatusNotFound {
+			lastErr = fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			lastBody = string(body)
+			time.Sleep(retryInterval)
+			continue
+		}
+
+		// For other errors, fail immediately
 		return string(body), fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	return string(body), nil
+	// Timeout reached
+	return lastBody, fmt.Errorf("request timed out after %v, last error: %w", retryTimeout, lastErr)
 }
 
 // directHTTPGet performs a direct HTTP GET request without routing through ingress

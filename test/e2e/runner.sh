@@ -59,16 +59,15 @@ function start_latest_knative_serving() {
     --type merge \
     --patch '{"data":{"ingress.class":"kourier.ingress.networking.knative.dev"}}'
 
-  # For local clusters (Kind, minikube), configure "No DNS" mode
+  # Configure "No DNS" mode for e2e tests
   # This uses Host header routing with example.com domain instead of real DNS
+  # This is needed for all clusters (local and cloud) to ensure consistent behavior
   # See: https://knative.dev/docs/install/yaml-install/serving/install-serving-with-yaml/#configure-dns
-  if needs_port_forward; then
-    echo "Detected local cluster - configuring 'No DNS' mode with example.com domain"
-    kubectl patch configmap/config-domain \
-      --namespace knative-serving \
-      --type merge \
-      --patch '{"data":{"example.com":""}}'
-  fi
+  echo "Configuring 'No DNS' mode with example.com domain for e2e tests"
+  kubectl patch configmap/config-domain \
+    --namespace knative-serving \
+    --type merge \
+    --patch '{"data":{"example.com":""}}'
 }
 
 # Start port-forward to Kourier for local clusters (Kind, minikube)

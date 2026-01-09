@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/distribution/reference v0.6.0
+	github.com/joho/godotenv v1.5.1
 	go.uber.org/zap v1.27.0
 	k8s.io/api v0.33.1
 	k8s.io/apimachinery v0.33.1

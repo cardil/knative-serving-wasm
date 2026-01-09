@@ -81,7 +81,9 @@ func TestNetworkInherit(t *testing.T) {
 	}
 
 	// Test HTTP request to echo server
-	targetURL := fmt.Sprintf("http://echo-server.%s.svc", namespace)
+	// Use full FQDN for DNS resolution (required on GKE, works on all clusters)
+	// Explicitly specify port 80 for HTTP
+	targetURL := fmt.Sprintf("http://echo-server.%s.svc.cluster.local:80", namespace)
 	requestURL := fmt.Sprintf("%s?url=%s", url, targetURL)
 
 	response, err := tc.HTTPGet(ctx, requestURL)
@@ -120,7 +122,8 @@ func TestNetworkTcpConnectSpecific(t *testing.T) {
 	}
 
 	// Create WasmModule with specific tcp.connect permission
-	echoServerHost := fmt.Sprintf("echo-server.%s.svc:80", namespace)
+	// Use full FQDN for DNS resolution (required on GKE, works on all clusters)
+	echoServerHost := fmt.Sprintf("echo-server.%s.svc.cluster.local:80", namespace)
 	wasmModule := &wasmv1alpha1.WasmModule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "http-fetch-tcp",
@@ -224,7 +227,9 @@ func TestNetworkTcpConnectWildcard(t *testing.T) {
 	}
 
 	// Test HTTP request to echo server
-	targetURL := fmt.Sprintf("http://echo-server.%s.svc", namespace)
+	// Use full FQDN for DNS resolution (required on GKE, works on all clusters)
+	// Explicitly specify port 80 for HTTP
+	targetURL := fmt.Sprintf("http://echo-server.%s.svc.cluster.local:80", namespace)
 	requestURL := fmt.Sprintf("%s?url=%s", url, targetURL)
 
 	response, err := tc.HTTPGet(ctx, requestURL)
@@ -291,7 +296,9 @@ func TestNetworkNoPermission(t *testing.T) {
 	}
 
 	// Test HTTP request to echo server (should fail or return error)
-	targetURL := fmt.Sprintf("http://echo-server.%s.svc", namespace)
+	// Use full FQDN for DNS resolution (required on GKE, works on all clusters)
+	// Explicitly specify port 80 for HTTP
+	targetURL := fmt.Sprintf("http://echo-server.%s.svc.cluster.local:80", namespace)
 	requestURL := fmt.Sprintf("%s?url=%s", url, targetURL)
 
 	response, err := tc.HTTPGet(ctx, requestURL)
