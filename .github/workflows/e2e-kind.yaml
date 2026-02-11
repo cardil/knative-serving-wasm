@@ -1,0 +1,78 @@
+# Copyright 2025 The Knative Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+name: E2E Tests on Kind
+
+on:
+  push:
+    branches: [ 'main', 'release-*' ]
+
+  pull_request:
+    branches: [ 'main', 'release-*' ]
+
+jobs:
+  e2e-kind:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        cache: true
+
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        target: wasm32-wasip2
+
+    - name: Create Kind cluster
+      uses: helm/kind-action@v1
+      with:
+        cluster_name: knative-wasm-e2e
+        wait: 120s
+
+    - name: Set up local registry
+      run: |
+        # Start local registry
+        docker run -d -p 5001:5000 --name registry registry:2
+        
+        # Connect registry to kind network
+        docker network connect kind registry
+        
+        # Document the local registry
+        kubectl apply -f - <<EOF
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: local-registry-hosting
+          namespace: kube-public
+        data:
+          localRegistryHosting.v1: |
+            host: "localhost:5001"
+            help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
+        EOF
+
+    - name: Verify cluster
+      run: |
+        kubectl cluster-info
+        kubectl get nodes
+
+    - name: Run e2e tests
+      run: ./goyek --verbose e2e
+      env:
+        E2E_IMAGE_BASENAME: localhost:5001/knative-serving-wasm
+        ARTIFACTS: ${{ github.workspace }}/artifacts
+
+    - name: Upload artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-test-artifacts
+        path: ${{ github.workspace }}/artifacts
+        retention-days: 7
