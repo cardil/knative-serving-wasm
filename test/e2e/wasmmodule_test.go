@@ -30,7 +30,7 @@ import (
 
 // TestBasicDeployment tests basic WasmModule deployment with reverse-text
 func TestBasicDeployment(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
 	defer cancel()
 
 	namespace := fmt.Sprintf("e2e-basic-%d", time.Now().Unix())

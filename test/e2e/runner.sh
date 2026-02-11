@@ -38,8 +38,9 @@ function is_kind_cluster() {
 }
 
 # Detect if we're running on a minikube cluster
+# Minikube nodes have labels containing "minikube.k8s.io"
 function is_minikube_cluster() {
-  kubectl config current-context 2>/dev/null | grep -q '^minikube$'
+  kubectl get nodes -o jsonpath='{.items[0].metadata.labels}' 2>/dev/null | grep -q 'minikube'
 }
 
 # Detect if we need port-forwarding (Kind or minikube)
@@ -74,16 +75,47 @@ function start_latest_knative_serving() {
 # This allows the test runner on the host to access the ingress gateway
 function start_local_port_forward() {
   if needs_port_forward; then
-    echo "Starting port-forward to Kourier gateway (localhost:31080 -> kourier:80)"
-    kubectl port-forward -n kourier-system service/kourier 31080:80 &
+    # Wait for Kourier gateway pods to be ready before port-forwarding
+    echo "DEBUG: Waiting for Kourier gateway pods to be ready..."
+    wait_until_pods_running kourier-system || return 1
+    
+    echo "DEBUG: Starting port-forward to Kourier gateway (localhost:31080 -> kourier:80)"
+    kubectl port-forward -n kourier-system service/kourier 31080:80 > /tmp/port-forward.log 2>&1 &
     PORT_FORWARD_PID=$!
     export PORT_FORWARD_PID
     # Set environment variable for Go tests to use the forwarded address
     export LOCAL_GATEWAY_ADDRESS="localhost:31080"
-    # Wait for port-forward to be ready
-    sleep 3
-    echo "Port-forward started (PID: $PORT_FORWARD_PID)"
-    echo "Go tests will use LOCAL_GATEWAY_ADDRESS=$LOCAL_GATEWAY_ADDRESS"
+    
+    echo -n "DEBUG: Waiting for port-forward to be ready (PID: $PORT_FORWARD_PID)"
+    # Wait for port to be accessible (timeout after 120 seconds)
+    for i in {1..120}; do
+      # Check if process is still running (fail fast if it died)
+      if ! ps -p "$PORT_FORWARD_PID" > /dev/null 2>&1; then
+        echo -e "\nERROR: Port-forward process (PID: $PORT_FORWARD_PID) died!"
+        cat /tmp/port-forward.log
+        return 1
+      fi
+      # Check if port is accessible
+      if nc -z localhost 31080 2>/dev/null; then
+        echo -e "\nDEBUG: Port-forward verified successfully"
+        echo "DEBUG: Go tests will use LOCAL_GATEWAY_ADDRESS=$LOCAL_GATEWAY_ADDRESS"
+        return 0
+      fi
+      echo -n "."
+      sleep 1
+    done
+    
+    # Timeout - port-forward failed
+    echo -e "\nERROR: Timeout waiting for port 31080 to be accessible!"
+    if ps -p "$PORT_FORWARD_PID" > /dev/null 2>&1; then
+      echo "Port-forward process is still running (PID: $PORT_FORWARD_PID)"
+    else
+      echo "Port-forward process is not running"
+    fi
+    cat /tmp/port-forward.log
+    return 1
+  else
+    echo "DEBUG: Port-forward not needed for this cluster type"
   fi
 }
 
@@ -97,6 +129,9 @@ function stop_local_port_forward() {
 
 function knative_setup() {
   start_latest_knative_serving
+  # Start port-forward for local clusters (Kind, minikube) after Knative is set up
+  start_local_port_forward
+  trap stop_local_port_forward EXIT
 }
 
 # Initialize test infrastructure (creates cluster, downloads releases, etc.)
@@ -106,11 +141,10 @@ initialize "$@"
 
 set -Eeuo pipefail
 
-# Start port-forward for local clusters (Kind, minikube)
-start_local_port_forward
-trap stop_local_port_forward EXIT
-
 # Run e2e tests with proper test reporting
-go_test_e2e -timeout 30m -tags=e2e ./test/e2e/... || fail_test 'knative-serving-wasm e2e tests'
+# Default timeout: 6m (5 tests * 1m each + 1m buffer)
+# Override with E2E_SUITE_TIMEOUT env var (in minutes)
+SUITE_TIMEOUT="${E2E_SUITE_TIMEOUT:-6}m"
+go_test_e2e -timeout "$SUITE_TIMEOUT" -tags=e2e ./test/e2e/... || fail_test 'knative-serving-wasm e2e tests'
 
 success

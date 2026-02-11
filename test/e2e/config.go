@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -34,6 +35,12 @@ const (
 
 	// ImageBasenameEnv is the environment variable for image basename
 	ImageBasenameEnv = "IMAGE_BASENAME"
+
+	// E2ETestTimeoutEnv is the environment variable for individual test timeout in seconds
+	E2ETestTimeoutEnv = "E2E_TEST_TIMEOUT"
+
+	// DefaultTestTimeout is the default timeout for individual e2e tests
+	DefaultTestTimeout = 1 * time.Minute
 )
 
 // Config holds e2e test configuration
@@ -86,6 +93,16 @@ func isLocalRegistryAvailable() bool {
 	}
 	defer conn.Close()
 	return true
+}
+
+// GetTestTimeout returns the individual test timeout from environment or default
+func GetTestTimeout() time.Duration {
+	if timeoutStr := os.Getenv(E2ETestTimeoutEnv); timeoutStr != "" {
+		if seconds, err := strconv.Atoi(timeoutStr); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return DefaultTestTimeout
 }
 
 // NewConfig creates a new e2e test configuration

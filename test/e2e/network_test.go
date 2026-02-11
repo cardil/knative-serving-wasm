@@ -30,7 +30,7 @@ import (
 
 // TestNetworkInherit tests WasmModule with network.inherit=true
 func TestNetworkInherit(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
 	defer cancel()
 
 	namespace := fmt.Sprintf("e2e-net-inherit-%d", time.Now().Unix())
@@ -101,7 +101,7 @@ func TestNetworkInherit(t *testing.T) {
 
 // TestNetworkTcpConnectSpecific tests WasmModule with specific tcp.connect permissions
 func TestNetworkTcpConnectSpecific(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
 	defer cancel()
 
 	namespace := fmt.Sprintf("e2e-net-tcp-%d", time.Now().Unix())
@@ -174,7 +174,7 @@ func TestNetworkTcpConnectSpecific(t *testing.T) {
 
 // TestNetworkTcpConnectWildcard tests WasmModule with wildcard tcp.connect permissions
 func TestNetworkTcpConnectWildcard(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
 	defer cancel()
 
 	namespace := fmt.Sprintf("e2e-net-wildcard-%d", time.Now().Unix())
@@ -247,7 +247,7 @@ func TestNetworkTcpConnectWildcard(t *testing.T) {
 
 // TestNetworkNoPermission tests WasmModule without network permissions (should fail)
 func TestNetworkNoPermission(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
 	defer cancel()
 
 	namespace := fmt.Sprintf("e2e-net-none-%d", time.Now().Unix())

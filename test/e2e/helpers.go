@@ -249,6 +249,19 @@ func (tc *TestContext) DeployEchoServer(ctx context.Context) error {
 							ContainerPort: 5678,
 							Name:          "http",
 						}},
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{
+								HTTPGet: &corev1.HTTPGetAction{
+									Path: "/",
+									Port: intstr.FromInt(5678),
+								},
+							},
+							InitialDelaySeconds: 1,
+							PeriodSeconds:       1,
+							TimeoutSeconds:      1,
+							SuccessThreshold:    1,
+							FailureThreshold:    3,
+						},
 					}},
 				},
 			},
@@ -288,19 +301,97 @@ func (tc *TestContext) DeployEchoServer(ctx context.Context) error {
 
 	// Wait for deployment to be ready
 	tc.T.Log("Waiting for echo server to be ready...")
-	return wait.PollUntilContextTimeout(ctx, DefaultPollInterval, DefaultTimeout, true, func(ctx context.Context) (bool, error) {
+	err = wait.PollUntilContextTimeout(ctx, DefaultPollInterval, DefaultTimeout, true, func(ctx context.Context) (bool, error) {
 		dep, err := tc.KubeClient.AppsV1().Deployments(tc.Namespace).Get(ctx, "echo-server", metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
 
 		if dep.Status.ReadyReplicas > 0 {
-			tc.T.Log("Echo server is ready")
+			tc.T.Log("Echo server deployment is ready")
 			return true, nil
 		}
 
 		return false, nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// Wait for service endpoints to be ready
+	tc.T.Log("Waiting for echo server endpoints to be ready...")
+	err = wait.PollUntilContextTimeout(ctx, DefaultPollInterval, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		endpoints, err := tc.KubeClient.CoreV1().Endpoints(tc.Namespace).Get(ctx, "echo-server", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		for _, subset := range endpoints.Subsets {
+			if len(subset.Addresses) > 0 {
+				tc.T.Log("Echo server endpoints are ready")
+				return true, nil
+			}
+		}
+
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Create a temporary warmup pod to verify service networking is operational
+	// This ensures kube-proxy iptables rules and CNI networking are fully propagated
+	tc.T.Log("Verifying echo server service networking with warmup pod...")
+	echoURL := fmt.Sprintf("http://echo-server.%s.svc.cluster.local:80", tc.Namespace)
+	warmupPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "echo-warmup",
+			Namespace: tc.Namespace,
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name:    "curl",
+				Image:   "curlimages/curl:latest",
+				Command: []string{"sh", "-c"},
+				Args: []string{
+					fmt.Sprintf("for i in $(seq 1 120); do if curl -sf --max-time 2 %s; then exit 0; fi; sleep 0.25; done; exit 1", echoURL),
+				},
+			}},
+			RestartPolicy: corev1.RestartPolicyNever,
+		},
+	}
+
+	_, err = tc.KubeClient.CoreV1().Pods(tc.Namespace).Create(ctx, warmupPod, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create warmup pod: %w", err)
+	}
+
+	// Wait for warmup pod to complete successfully
+	err = wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 40*time.Second, true, func(ctx context.Context) (bool, error) {
+		pod, err := tc.KubeClient.CoreV1().Pods(tc.Namespace).Get(ctx, "echo-warmup", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		if pod.Status.Phase == corev1.PodSucceeded {
+			tc.T.Log("Echo server service networking verified")
+			return true, nil
+		}
+
+		if pod.Status.Phase == corev1.PodFailed {
+			return false, fmt.Errorf("warmup pod failed to connect to echo server")
+		}
+
+		return false, nil
+	})
+
+	// Clean up warmup pod
+	deletePolicy := metav1.DeletePropagationBackground
+	tc.KubeClient.CoreV1().Pods(tc.Namespace).Delete(ctx, "echo-warmup", metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,
+	})
+
+	return err
 }
 
 // GetIngressAddress returns the address of the Kourier ingress gateway.
@@ -427,7 +518,7 @@ func (tc *TestContext) HTTPGet(ctx context.Context, targetURL string) (string, e
 	var lastErr error
 	var lastBody string
 	retryInterval := 250 * time.Millisecond
-	retryTimeout := 4 * time.Second
+	retryTimeout := 2 * time.Minute
 	deadline := time.Now().Add(retryTimeout)
 
 	for time.Now().Before(deadline) {
