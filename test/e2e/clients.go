@@ -18,7 +18,7 @@ package e2e
 
 import (
 	"fmt"
-	"os"
+	"sync"
 	"testing"
 
 	"k8s.io/client-go/kubernetes"
@@ -33,28 +33,32 @@ var (
 
 	// globalWasmClient is the WasmModule client for all tests
 	globalWasmClient wasmclientset.Interface
+
+	// clientsOnce ensures clients are initialized only once
+	clientsOnce sync.Once
+
+	// clientsInitErr stores any error from client initialization
+	clientsInitErr error
 )
 
-// TestMain is the entry point for e2e tests
-func TestMain(m *testing.M) {
-	// Verify image basename configuration
-	imageBasename, err := GetE2EImageBasename()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "E2E image basename check failed: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Using e2e image basename: %s\n", imageBasename)
+// ensureClients initializes Kubernetes clients lazily on first use
+func ensureClients() error {
+	clientsOnce.Do(func() {
+		// Verify image basename configuration
+		imageBasename, err := GetE2EImageBasename()
+		if err != nil {
+			clientsInitErr = fmt.Errorf("E2E image basename check failed: %w", err)
+			return
+		}
+		fmt.Printf("Using e2e image basename: %s\n", imageBasename)
 
-	// Initialize Kubernetes clients
-	if err := initClients(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize clients: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Run tests
-	code := m.Run()
-
-	os.Exit(code)
+		// Initialize Kubernetes clients
+		if err := initClients(); err != nil {
+			clientsInitErr = fmt.Errorf("failed to initialize clients: %w", err)
+			return
+		}
+	})
+	return clientsInitErr
 }
 
 // initClients initializes Kubernetes and WasmModule clients
@@ -93,6 +97,11 @@ func initClients() error {
 
 // newTestContext creates a new test context for a test
 func newTestContext(t *testing.T, namespace string) (*TestContext, error) {
+	// Ensure clients are initialized before creating test context
+	if err := ensureClients(); err != nil {
+		return nil, err
+	}
+
 	config, err := NewConfig(namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
