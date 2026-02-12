@@ -121,9 +121,11 @@ fn fetch_url(url: &str) -> Result<(u16, String), String> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut response = httparse::Response::new(&mut headers);
     
-    let body_offset = response.parse(&response_data)
-        .map_err(|e| format!("Failed to parse response: {:?}", e))?
-        .unwrap();
+    let body_offset = match response.parse(&response_data)
+        .map_err(|e| format!("Failed to parse response: {:?}", e))? {
+        httparse::Status::Complete(offset) => offset,
+        httparse::Status::Partial => return Err("Incomplete HTTP response received".to_string()),
+    };
 
     let status = response.code
         .ok_or_else(|| "No status code in response".to_string())?;

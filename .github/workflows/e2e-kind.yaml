@@ -56,27 +56,51 @@ jobs:
     - name: Run e2e tests
       run: ./goyek --verbose e2e
       env:
-        E2E_IMAGE_BASENAME: ghcr.io/${{ github.repository }}/e2e-pr-${{ github.event.pull_request.number }}
+        E2E_IMAGE_BASENAME: ghcr.io/${{ github.repository }}/e2e-${{ github.event.pull_request.number || github.run_id }}
         ARTIFACTS: ${{ github.workspace }}/artifacts
 
     - name: Delete e2e images from ghcr.io
-      if: always()
+      if: always() && github.event_name == 'pull_request'
       continue-on-error: true
       run: |
-        # Delete all PR-specific images to avoid accumulation
-        # Package names will be like: e2e-pr-6_runner, e2e-pr-6_controller, etc.
-        PR_NUM=${{ github.event.pull_request.number }}
-        REPO_OWNER=$(echo "${{ github.repository }}" | cut -d'/' -f1)
-        PREFIX="e2e-pr-${PR_NUM}"
+        set -o pipefail
         
-        echo "Deleting packages with prefix: ${PREFIX}"
-        # List and delete all packages matching the PR prefix
-        gh api "/users/${REPO_OWNER}/packages?package_type=container" --jq ".[] | select(.name | startswith(\"${PREFIX}\")) | .name" | \
-        while read -r package_name; do
+        # Delete all PR-specific images to avoid accumulation
+        # Package names are like: knative-serving-wasm/e2e-6/runner
+        RUN_ID=${{ github.event.pull_request.number || github.run_id }}
+        PATTERN="e2e-${RUN_ID}"
+        FAILED=0
+        
+        echo "Deleting packages containing: ${PATTERN}"
+        
+        # List packages matching the PR pattern and delete them
+        # Package names contain slashes, so we need URL-encoding for the delete API
+        PACKAGES=$(gh api "/user/packages?package_type=container" --jq ".[] | select(.name | contains(\"${PATTERN}\")) | .name" 2>&1) || {
+          echo "::warning::Failed to list packages: ${PACKAGES}"
+          exit 1
+        }
+        
+        if [ -z "$PACKAGES" ]; then
+          echo "No packages found matching pattern: ${PATTERN}"
+          exit 0
+        fi
+        
+        echo "$PACKAGES" | while read -r package_name; do
+          # URL-encode the package name (slashes become %2F)
+          encoded_name=$(printf '%s' "$package_name" | jq -sRr @uri)
           echo "Deleting package: ${package_name}"
-          gh api --method DELETE "/users/${REPO_OWNER}/packages/container/${package_name}" 2>/dev/null || \
-            echo "Failed to delete ${package_name}"
+          if ! gh api --method DELETE "/user/packages/container/${encoded_name}" 2>&1; then
+            echo "::warning::Failed to delete package: ${package_name}"
+            FAILED=1
+          fi
         done
+        
+        if [ "$FAILED" -eq 1 ]; then
+          echo "::warning::Some packages failed to delete"
+          exit 1
+        fi
+        
+        echo "Cleanup complete"
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

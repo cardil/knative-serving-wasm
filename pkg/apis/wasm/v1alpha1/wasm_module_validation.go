@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"context"
+	"strings"
 
 	"github.com/distribution/reference"
 	"knative.dev/pkg/apis"
@@ -38,10 +39,8 @@ func (ass *WasmModuleSpec) Validate(_ context.Context) *apis.FieldError {
 	if ass.Image == "" {
 		//goland:noinspection GoDfaNilDereference
 		errs = errs.Also(apis.ErrMissingField(imageFieldPath))
-	}
-
-	// TODO: validate remote registry for accessibility of parsed ref
-	if _, err := reference.Parse(ass.Image); err != nil {
+	} else if _, err := reference.Parse(ass.Image); err != nil {
+		// TODO: validate remote registry for accessibility of parsed ref
 		//goland:noinspection GoDfaNilDereference
 		errs = errs.Also(apis.ErrInvalidValue(ass.Image, imageFieldPath, err.Error()))
 	}
@@ -99,20 +98,13 @@ func validateAddressPattern(pattern string) error {
 	if pattern == "" {
 		return apis.ErrInvalidValue(pattern, "", "address pattern cannot be empty")
 	}
-	// Basic validation - just check for colon separator
-	// More detailed validation can be added later
-	if len(pattern) < 3 || (pattern[0] != '*' && !containsColon(pattern)) {
+	// All patterns must contain a colon separator between host and port
+	if !strings.Contains(pattern, ":") {
+		return apis.ErrInvalidValue(pattern, "", "address pattern must be in format 'host:port'")
+	}
+	// Validate minimum length (e.g., "*:*" is 3 chars)
+	if len(pattern) < 3 {
 		return apis.ErrInvalidValue(pattern, "", "address pattern must be in format 'host:port'")
 	}
 	return nil
-}
-
-// containsColon checks if string contains a colon
-func containsColon(s string) bool {
-	for _, c := range s {
-		if c == ':' {
-			return true
-		}
-	}
-	return false
 }
