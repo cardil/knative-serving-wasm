@@ -14,6 +14,9 @@ jobs:
   e2e-kind:
     name: E2E Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     
     steps:
     - name: Checkout code
