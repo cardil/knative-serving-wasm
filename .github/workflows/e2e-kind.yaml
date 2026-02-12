@@ -85,7 +85,7 @@ jobs:
           exit 0
         fi
         
-        echo "$PACKAGES" | while read -r package_name; do
+        while read -r package_name; do
           # URL-encode the package name (slashes become %2F)
           encoded_name=$(printf '%s' "$package_name" | jq -sRr @uri)
           echo "Deleting package: ${package_name}"
@@ -93,7 +93,7 @@ jobs:
             echo "::warning::Failed to delete package: ${package_name}"
             FAILED=1
           fi
-        done
+        done <<< "$PACKAGES"
         
         if [ "$FAILED" -eq 1 ]; then
           echo "::warning::Some packages failed to delete"
