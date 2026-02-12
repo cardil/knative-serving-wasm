@@ -1,0 +1,114 @@
+# Copyright 2025 The Knative Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+name: E2E Tests on Kind
+
+on:
+  push:
+    branches: [ 'main', 'release-*' ]
+
+  pull_request:
+    branches: [ 'main', 'release-*' ]
+
+jobs:
+  e2e-kind:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        cache: true
+
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        target: wasm32-wasip2
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create Kind cluster
+      uses: helm/kind-action@v1
+      with:
+        cluster_name: knative-wasm-e2e
+        node_image: kindest/node:v1.34.0
+        wait: 120s
+
+    - name: Verify cluster
+      run: |
+        kubectl cluster-info
+        kubectl get nodes
+
+    - name: Run e2e tests
+      run: ./goyek --verbose e2e
+      env:
+        E2E_IMAGE_BASENAME: ghcr.io/${{ github.repository }}/e2e-${{ github.event.pull_request.number || github.run_id }}
+        ARTIFACTS: ${{ github.workspace }}/artifacts
+
+    - name: Delete e2e images from ghcr.io
+      if: always() && github.event_name == 'pull_request'
+      continue-on-error: true
+      run: |
+        set -o pipefail
+        
+        # Delete all PR-specific images to avoid accumulation
+        # Package names are like: knative-serving-wasm/e2e-6/runner
+        RUN_ID=${{ github.event.pull_request.number || github.run_id }}
+        PATTERN="e2e-${RUN_ID}"
+        FAILED=0
+        
+        echo "Deleting packages containing: ${PATTERN}"
+        
+        # List packages matching the PR pattern and delete them
+        # Package names contain slashes, so we need URL-encoding for the delete API
+        PACKAGES=$(gh api "/user/packages?package_type=container" --jq ".[] | select(.name | contains(\"${PATTERN}\")) | .name" 2>&1) || {
+          echo "::warning::Failed to list packages: ${PACKAGES}"
+          exit 1
+        }
+        
+        if [ -z "$PACKAGES" ]; then
+          echo "No packages found matching pattern: ${PATTERN}"
+          exit 0
+        fi
+        
+        while read -r package_name; do
+          # URL-encode the package name (slashes become %2F)
+          encoded_name=$(printf '%s' "$package_name" | jq -sRr @uri)
+          echo "Deleting package: ${package_name}"
+          if ! gh api --method DELETE "/user/packages/container/${encoded_name}" 2>&1; then
+            echo "::warning::Failed to delete package: ${package_name}"
+            FAILED=1
+          fi
+        done <<< "$PACKAGES"
+        
+        if [ "$FAILED" -eq 1 ]; then
+          echo "::warning::Some packages failed to delete"
+          exit 1
+        fi
+        
+        echo "Cleanup complete"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-test-artifacts
+        path: ${{ github.workspace }}/artifacts
+        retention-days: 7

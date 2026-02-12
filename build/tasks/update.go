@@ -1,8 +1,7 @@
 package tasks
 
 import (
-	"github.com/goyek/x/cmd"
-
+	executil "github.com/cardil/knative-serving-wasm/build/util/exec"
 	"github.com/goyek/goyek/v2"
 )
 
@@ -23,7 +22,7 @@ func UpdateCodegen() goyek.Task {
 		Name:  "update-codegen",
 		Usage: "Update project automatically generated code",
 		Action: func(a *goyek.A) {
-			cmd.Exec(a, "hack/update-codegen.sh")
+			executil.ExecOrDie(a, "hack/update-codegen.sh")
 		},
 	}
 }
@@ -33,7 +32,7 @@ func UpdateDeps() goyek.Task {
 		Name:  "update-deps",
 		Usage: "Update project dependencies",
 		Action: func(a *goyek.A) {
-			cmd.Exec(a, "hack/update-deps.sh --upgrade")
+			executil.ExecOrDie(a, "hack/update-deps.sh --upgrade")
 		},
 	}
 }
@@ -43,7 +42,7 @@ func TidyDeps() goyek.Task {
 		Name:  "tidy",
 		Usage: "Tidy up project dependencies",
 		Action: func(a *goyek.A) {
-			cmd.Exec(a, "hack/update-deps.sh")
+			executil.ExecOrDie(a, "hack/update-deps.sh")
 		},
 	}
 }

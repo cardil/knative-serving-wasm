@@ -22,5 +22,22 @@ import (
 
 // SetDefaults implements apis.Defaultable.
 func (as *WasmModule) SetDefaults(_ context.Context) {
-	// Nothing to default.
+	as.Spec.SetDefaults()
+}
+
+// SetDefaults sets default values for WasmModuleSpec.
+func (ass *WasmModuleSpec) SetDefaults() {
+	// Set defaults for network configuration
+	if ass.Network != nil {
+		ass.Network.SetDefaults()
+	}
+}
+
+// SetDefaults sets default values for NetworkSpec.
+func (ns *NetworkSpec) SetDefaults() {
+	// Default allowIpNameLookup to true when network is configured but field is nil
+	if ns.AllowIpNameLookup == nil {
+		trueVal := true
+		ns.AllowIpNameLookup = &trueVal
+	}
 }

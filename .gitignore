@@ -11,3 +11,7 @@ bazel-*
 *.out
 
 build/resources/
+
+# AI
+.ai/
+AGENTS.md

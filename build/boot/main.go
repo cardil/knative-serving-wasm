@@ -2,6 +2,7 @@ package boot
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -9,7 +10,21 @@ import (
 	"github.com/goyek/goyek/v2/middleware"
 	"github.com/goyek/x/color"
 	flag "github.com/spf13/pflag"
+	"golang.org/x/term"
 )
+
+// isBatchMode detects if running in batch mode (no terminal on stdin or CI environment)
+func isBatchMode() bool {
+	// Check common CI environment variables
+	ciVars := []string{"CI", "CONTINUOUS_INTEGRATION", "BUILD_NUMBER", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI"}
+	for _, v := range ciVars {
+		if os.Getenv(v) != "" {
+			return true
+		}
+	}
+	// Check if stdin is not a terminal
+	return !term.IsTerminal(int(os.Stdin.Fd()))
+}
 
 // Params are reusable flags used by the build pipeline.
 type Params struct {
@@ -29,6 +44,7 @@ type Option func(*Params)
 func Main(opts ...Option) {
 	p := Params{
 		LongRun: time.Minute,
+		V:       isBatchMode(),
 	}
 	for _, opt := range opts {
 		opt(&p)

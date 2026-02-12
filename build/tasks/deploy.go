@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -9,11 +10,26 @@ import (
 	"github.com/cardil/ghet/pkg/ghet/download"
 	"github.com/cardil/ghet/pkg/ghet/install"
 	"github.com/cardil/ghet/pkg/github"
+	executil "github.com/cardil/knative-serving-wasm/build/util/exec"
 	"github.com/goyek/goyek/v2"
 	"github.com/goyek/x/cmd"
+	"go.yaml.in/yaml/v2"
 )
 
 const koDockerRepo = "KO_DOCKER_REPO"
+
+// wasmModule represents a WASM module example
+type wasmModule struct {
+	name     string // module name (e.g., "reverse-text")
+	wasmFile string // wasm file name without extension (e.g., "reverse_text")
+}
+
+// wasmModules lists all example modules to build and push
+var wasmModules = []wasmModule{{
+	name: "reverse-text", wasmFile: "reverse_text",
+}, {
+	name: "http-fetch", wasmFile: "http_fetch",
+}}
 
 func Deploy(f *goyek.Flow) {
 	f.Define(goyek.Task{
@@ -21,9 +37,7 @@ func Deploy(f *goyek.Flow) {
 		Usage: "Deploys the controller onto Kubernetes",
 		Action: func(a *goyek.A) {
 			setupKoEnv(a)
-			cmd.Exec(a,
-				"go run github.com/google/ko@latest apply -B -f config/",
-			)
+			koApply(a)
 		},
 		Deps: goyek.Deps{
 			f.Define(Publish(f)),
@@ -32,13 +46,74 @@ func Deploy(f *goyek.Flow) {
 	f.Define(Undeploy())
 }
 
+// koApply applies Kubernetes manifests using ko
+func koApply(a *goyek.A) {
+	koApplyWithFlags(a, false)
+}
+
+// koApplyE2E applies Kubernetes manifests using ko with e2e-specific settings
+func koApplyE2E(a *goyek.A) {
+	koApplyWithFlags(a, true)
+}
+
+// koApplyWithFlags applies Kubernetes manifests using ko with optional e2e flags
+func koApplyWithFlags(a *goyek.A, e2eMode bool) {
+	a.Helper()
+
+	runnerImage := path.Join(os.Getenv(koDockerRepo), "runner")
+
+	// Create ko config with ldflags
+	// GOFLAGS doesn't support multiple -X flags, so we use .ko.yaml instead
+	// See: https://ko.build/advanced/faq/#how-can-i-set-ldflags
+	type koBuild struct {
+		ID      string   `yaml:"id"`
+		Dir     string   `yaml:"dir"`
+		Ldflags []string `yaml:"ldflags"`
+	}
+	type koConfig struct {
+		Builds []koBuild `yaml:"builds"`
+	}
+
+	ldflags := []string{
+		fmt.Sprintf("-X github.com/cardil/knative-serving-wasm/pkg/reconciler/wasmmodule.DefaultRunnerImage=%s", runnerImage),
+	}
+
+	// For e2e tests, also set ImagePullPolicy=Always to ensure fresh images
+	if e2eMode {
+		ldflags = append(ldflags, "-X github.com/cardil/knative-serving-wasm/pkg/reconciler/wasmmodule.DefaultImagePullPolicy=Always")
+	}
+
+	config := koConfig{
+		Builds: []koBuild{{
+			ID:      "controller",
+			Dir:     "./cmd/controller",
+			Ldflags: ldflags,
+		}},
+	}
+
+	configYAML, err := yaml.Marshal(config)
+	if err != nil {
+		a.Fatalf("Failed to marshal ko config: %v", err)
+	}
+
+	koConfigPath := path.Join("build", "output", ".ko.yaml")
+	if err := os.WriteFile(koConfigPath, configYAML, 0644); err != nil {
+		a.Fatalf("Failed to write ko config: %v", err)
+	}
+
+	executil.ExecOrDie(a, spaceJoin(
+		"go", "run", "github.com/google/ko@latest", "apply",
+		"-B", "-f", "config/",
+	), cmd.Env("KO_CONFIG_PATH", koConfigPath))
+}
+
 func Undeploy() goyek.Task {
 	return goyek.Task{
 		Name:  "undeploy",
 		Usage: "Removes the controller from Kubernetes",
 		Action: func(a *goyek.A) {
 			setupKoEnv(a)
-			cmd.Exec(a,
+			executil.ExecOrDie(a,
 				"go run github.com/google/ko@latest delete -f config/",
 			)
 		},
@@ -73,24 +148,31 @@ func Images() goyek.Task {
 }
 
 func pushExamples(a *goyek.A) {
+	a.Helper()
 	installWkg(a)
-	tag := path.Join(os.Getenv(koDockerRepo), "example", "reverse-text")
-	wasm := path.Join("examples", "modules", "reverse-text",
-		"target", "wasm32-wasip2", "release", "reverse_text.wasm")
 	wkg := wkgPath()
-	cmd.Exec(a, spaceJoin(wkg, "oci", "push", tag, wasm))
+	repo := os.Getenv(koDockerRepo)
+
+	for _, mod := range wasmModules {
+		tag := path.Join(repo, "example", mod.name)
+		wasm := path.Join("examples", "modules", mod.name,
+			"target", "wasm32-wasip2", "release", mod.wasmFile+".wasm")
+		executil.ExecOrDie(a, spaceJoin(wkg, "oci", "push", tag, wasm))
+	}
 }
 
 func pushRunnerImage(a *goyek.A) {
+	a.Helper()
 	e := resolveContainerEngine()
 	tag := path.Join(os.Getenv(koDockerRepo), "runner")
-	cmd.Exec(a, spaceJoin(e, "push", tag))
+	executil.ExecOrDie(a, spaceJoin(e, "push", tag))
 }
 
 func buildRunnerImage(a *goyek.A) {
+	a.Helper()
 	e := resolveContainerEngine()
 	tag := path.Join(os.Getenv(koDockerRepo), "runner")
-	cmd.Exec(a, spaceJoin(e, "build", ".", "--layers", "-t", tag),
+	executil.ExecOrDie(a, spaceJoin(e, "build", ".", "--layers", "-t", tag),
 		cmd.Dir("runner"))
 }
 

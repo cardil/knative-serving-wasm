@@ -18,6 +18,9 @@ package v1alpha1
 
 import (
 	"context"
+	"net"
+	"strconv"
+	"strings"
 
 	"github.com/distribution/reference"
 	"knative.dev/pkg/apis"
@@ -32,24 +35,102 @@ func (as *WasmModule) Validate(ctx context.Context) *apis.FieldError {
 func (ass *WasmModuleSpec) Validate(_ context.Context) *apis.FieldError {
 	var errs *apis.FieldError
 
-	if ass.ServiceName == "" {
-		//goland:noinspection GoDfaNilDereference
-		errs = errs.Also(apis.ErrMissingField("serviceName"))
-	}
-
-	imageFieldPath := "source.image"
-	// A WasmModule must specify its source. The 'source.image' is the field
-	// that points to the OCI image containing the Wasm module.
-	if ass.Source.Image == "" {
+	imageFieldPath := "image"
+	// A WasmModule must specify its image. The 'image' field
+	// points to the OCI image containing the Wasm module.
+	if ass.Image == "" {
 		//goland:noinspection GoDfaNilDereference
 		errs = errs.Also(apis.ErrMissingField(imageFieldPath))
+	} else if _, err := reference.Parse(ass.Image); err != nil {
+		// TODO: validate remote registry for accessibility of parsed ref
+		//goland:noinspection GoDfaNilDereference
+		errs = errs.Also(apis.ErrInvalidValue(ass.Image, imageFieldPath, err.Error()))
 	}
 
-	// TODO: validate remote registry for accessibility of parsed ref
-	if _, err := reference.Parse(ass.Source.Image); err != nil {
-		//goland:noinspection GoDfaNilDereference
-		errs = errs.Also(apis.ErrInvalidValue(ass.Source.Image, imageFieldPath, err.Error()))
+	// Validate network configuration if present
+	if ass.Network != nil {
+		errs = errs.Also(ass.Network.Validate().ViaField("network"))
 	}
 
 	return errs
+}
+
+// Validate validates the NetworkSpec.
+func (ns *NetworkSpec) Validate() *apis.FieldError {
+	var errs *apis.FieldError
+
+	// Validate TCP configuration
+	if ns.Tcp != nil {
+		for i, addr := range ns.Tcp.Bind {
+			if err := validateAddressPattern(addr); err != nil {
+				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "tcp.bind", i))
+			}
+		}
+		for i, addr := range ns.Tcp.Connect {
+			if err := validateAddressPattern(addr); err != nil {
+				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "tcp.connect", i))
+			}
+		}
+	}
+
+	// Validate UDP configuration
+	if ns.Udp != nil {
+		for i, addr := range ns.Udp.Bind {
+			if err := validateAddressPattern(addr); err != nil {
+				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.bind", i))
+			}
+		}
+		for i, addr := range ns.Udp.Connect {
+			if err := validateAddressPattern(addr); err != nil {
+				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.connect", i))
+			}
+		}
+		for i, addr := range ns.Udp.Outgoing {
+			if err := validateAddressPattern(addr); err != nil {
+				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.outgoing", i))
+			}
+		}
+	}
+
+	return errs
+}
+
+// validateAddressPattern validates address patterns like "host:port", "*:port", "host:*", "*:*".
+func validateAddressPattern(pattern string) error {
+	if pattern == "" {
+		return apis.ErrInvalidValue(pattern, "", "address pattern cannot be empty")
+	}
+
+	host, port, ok := strings.Cut(pattern, ":")
+	if !ok || host == "" || port == "" {
+		return apis.ErrInvalidValue(pattern, "", "address pattern must be in format 'host:port'")
+	}
+
+	// Validate host: must be '*' or a valid hostname/IP.
+	if host != "*" && !isValidHost(host) {
+		return apis.ErrInvalidValue(pattern, "", "host must be '*' or a valid hostname/IP")
+	}
+
+	// Validate port: must be '*' or numeric.
+	if port != "*" {
+		if _, err := strconv.Atoi(port); err != nil {
+			return apis.ErrInvalidValue(pattern, "", "port must be '*' or numeric")
+		}
+	}
+
+	return nil
+}
+
+// isValidHost checks if the host is a valid hostname or IP address.
+func isValidHost(host string) bool {
+	// Check for IP address (IPv4 or IPv6).
+	if ip := net.ParseIP(host); ip != nil {
+		return true
+	}
+	// Basic hostname validation: non-empty, no spaces, reasonable characters.
+	if strings.ContainsAny(host, " \t\n\r") {
+		return false
+	}
+
+	return true
 }
