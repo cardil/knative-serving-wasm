@@ -31,21 +31,43 @@ jobs:
         toolchain: stable
         target: wasm32-wasip2
 
+    - name: Set up local registry
+      run: |
+        # Create registry container unless it already exists
+        if [ "$(docker inspect -f '{{.State.Running}}' kind-registry 2>/dev/null || true)" != 'true' ]; then
+          docker run -d --restart=always -p 5001:5000 --name kind-registry registry:2
+        fi
+
+    - name: Create Kind config
+      run: |
+        cat > /tmp/kind-config.yaml <<EOF
+        kind: Cluster
+        apiVersion: kind.x-k8s.io/v1alpha4
+        containerdConfigPatches:
+        - |-
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5001"]
+            endpoint = ["http://kind-registry:5000"]
+        - |-
+          [plugins."io.containerd.grpc.v1.cri".registry.configs."kind-registry:5000".tls]
+            insecure_skip_verify = true
+        EOF
+
     - name: Create Kind cluster
       uses: helm/kind-action@v1
       with:
         cluster_name: knative-wasm-e2e
+        node_image: kindest/node:v1.34.0
         wait: 120s
+        config: /tmp/kind-config.yaml
 
-    - name: Set up local registry
+    - name: Connect registry to Kind network
       run: |
-        # Start local registry
-        docker run -d -p 5001:5000 --name registry registry:2
+        # Connect the registry to the Kind network if not already connected
+        if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' kind-registry)" = 'null' ]; then
+          docker network connect kind kind-registry
+        fi
         
-        # Connect registry to kind network
-        docker network connect kind registry
-        
-        # Document the local registry
+        # Document the local registry for tools
         kubectl apply -f - <<EOF
         apiVersion: v1
         kind: ConfigMap
