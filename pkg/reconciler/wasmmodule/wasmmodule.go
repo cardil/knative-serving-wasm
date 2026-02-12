@@ -232,40 +232,32 @@ func buildRunnerConfig(wm *api.WasmModule) (string, error) {
 	}
 
 	// Convert volume mounts to directory configs
+	// The runner sees volumes at the mount path specified by the VolumeMount,
+	// not at any hardcoded location. Kubernetes mounts the volume at vm.MountPath.
 	if len(wm.Spec.VolumeMounts) > 0 {
 		config.Dirs = make([]RunnerDirConfig, 0, len(wm.Spec.VolumeMounts))
 
-		// Build a map of volume names to their host paths
-		volumeMap := make(map[string]string)
+		// Build a set of valid volume names for validation
+		validVolumes := make(map[string]bool)
 		for _, vol := range wm.Spec.Volumes {
-			if vol.HostPath != nil {
-				volumeMap[vol.Name] = vol.HostPath.Path
-			} else if vol.ConfigMap != nil {
-				// ConfigMaps are mounted at a standard location
-				volumeMap[vol.Name] = fmt.Sprintf("/var/run/configmaps/%s", vol.Name)
-			} else if vol.Secret != nil {
-				// Secrets are mounted at a standard location
-				volumeMap[vol.Name] = fmt.Sprintf("/var/run/secrets/%s", vol.Name)
-			} else if vol.PersistentVolumeClaim != nil {
-				// PVCs are mounted at a standard location
-				volumeMap[vol.Name] = fmt.Sprintf("/var/run/volumes/%s", vol.Name)
-			}
+			validVolumes[vol.Name] = true
 		}
 
 		for _, vm := range wm.Spec.VolumeMounts {
-			hostPath, ok := volumeMap[vm.Name]
-			if !ok {
+			if !validVolumes[vm.Name] {
 				return "", fmt.Errorf("volume mount %s references undefined volume %s", vm.MountPath, vm.Name)
 			}
 
-			guestPath := vm.MountPath
+			// The hostPath is where Kubernetes mounts the volume - vm.MountPath
+			// If SubPath is specified, it's a subdirectory within the mounted volume
+			hostPath := vm.MountPath
 			if vm.SubPath != "" {
-				guestPath = fmt.Sprintf("%s/%s", vm.MountPath, vm.SubPath)
+				hostPath = fmt.Sprintf("%s/%s", vm.MountPath, vm.SubPath)
 			}
 
 			config.Dirs = append(config.Dirs, RunnerDirConfig{
 				HostPath:  hostPath,
-				GuestPath: guestPath,
+				GuestPath: vm.MountPath,
 				ReadOnly:  vm.ReadOnly,
 			})
 		}
