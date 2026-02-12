@@ -85,11 +85,29 @@ jobs:
         kubectl cluster-info
         kubectl get nodes
 
+    - name: Configure insecure registries
+      run: |
+        # Configure podman to allow insecure registry
+        mkdir -p ~/.config/containers
+        cat > ~/.config/containers/registries.conf <<EOF
+        [[registry]]
+        location = "localhost:5001"
+        insecure = true
+        EOF
+        
+        # Configure Docker daemon for insecure registry (if using docker instead of podman)
+        if command -v docker &> /dev/null; then
+          echo '{"insecure-registries": ["localhost:5001"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker || true
+        fi
+
     - name: Run e2e tests
       run: ./goyek --verbose e2e
       env:
         E2E_IMAGE_BASENAME: localhost:5001/knative-serving-wasm
         ARTIFACTS: ${{ github.workspace }}/artifacts
+        # Configure wkg to use HTTP for localhost registry
+        WKG_REGISTRY_INSECURE: "true"
 
     - name: Upload artifacts on failure
       if: failure()

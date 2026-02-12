@@ -10,6 +10,7 @@ import (
 	"github.com/cardil/ghet/pkg/ghet/download"
 	"github.com/cardil/ghet/pkg/ghet/install"
 	"github.com/cardil/ghet/pkg/github"
+	executil "github.com/cardil/knative-serving-wasm/build/util/exec"
 	"github.com/goyek/goyek/v2"
 	"github.com/goyek/x/cmd"
 	"go.yaml.in/yaml/v2"
@@ -100,7 +101,7 @@ func koApplyWithFlags(a *goyek.A, e2eMode bool) {
 		a.Fatalf("Failed to write ko config: %v", err)
 	}
 
-	cmd.Exec(a, spaceJoin(
+	executil.ExecOrDie(a, spaceJoin(
 		"go", "run", "github.com/google/ko@latest", "apply",
 		"-B", "-f", "config/",
 	), cmd.Env("KO_CONFIG_PATH", koConfigPath))
@@ -112,7 +113,7 @@ func Undeploy() goyek.Task {
 		Usage: "Removes the controller from Kubernetes",
 		Action: func(a *goyek.A) {
 			setupKoEnv(a)
-			cmd.Exec(a,
+			executil.ExecOrDie(a,
 				"go run github.com/google/ko@latest delete -f config/",
 			)
 		},
@@ -147,6 +148,7 @@ func Images() goyek.Task {
 }
 
 func pushExamples(a *goyek.A) {
+	a.Helper()
 	installWkg(a)
 	wkg := wkgPath()
 	repo := os.Getenv(koDockerRepo)
@@ -155,20 +157,22 @@ func pushExamples(a *goyek.A) {
 		tag := path.Join(repo, "example", mod.name)
 		wasm := path.Join("examples", "modules", mod.name,
 			"target", "wasm32-wasip2", "release", mod.wasmFile+".wasm")
-		cmd.Exec(a, spaceJoin(wkg, "oci", "push", tag, wasm))
+		executil.ExecOrDie(a, spaceJoin(wkg, "oci", "push", tag, wasm))
 	}
 }
 
 func pushRunnerImage(a *goyek.A) {
+	a.Helper()
 	e := resolveContainerEngine()
 	tag := path.Join(os.Getenv(koDockerRepo), "runner")
-	cmd.Exec(a, spaceJoin(e, "push", tag))
+	executil.ExecOrDie(a, spaceJoin(e, "push", tag))
 }
 
 func buildRunnerImage(a *goyek.A) {
+	a.Helper()
 	e := resolveContainerEngine()
 	tag := path.Join(os.Getenv(koDockerRepo), "runner")
-	cmd.Exec(a, spaceJoin(e, "build", ".", "--layers", "-t", tag),
+	executil.ExecOrDie(a, spaceJoin(e, "build", ".", "--layers", "-t", tag),
 		cmd.Dir("runner"))
 }
 
