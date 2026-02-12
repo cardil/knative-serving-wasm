@@ -107,7 +107,7 @@ jobs:
         E2E_IMAGE_BASENAME: localhost:5001/knative-serving-wasm
         ARTIFACTS: ${{ github.workspace }}/artifacts
         # Configure wkg to use HTTP for localhost registry
-        WKG_REGISTRY_INSECURE: "true"
+        WKG_OCI_INSECURE: localhost:5001
 
     - name: Upload artifacts on failure
       if: failure()
