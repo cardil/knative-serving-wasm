@@ -18,6 +18,8 @@ package v1alpha1
 
 import (
 	"context"
+	"net"
+	"strconv"
 	"strings"
 
 	"github.com/distribution/reference"
@@ -93,18 +95,42 @@ func (ns *NetworkSpec) Validate() *apis.FieldError {
 	return errs
 }
 
-// validateAddressPattern validates address patterns like "host:port", "*:port", "host:*", "*:*"
+// validateAddressPattern validates address patterns like "host:port", "*:port", "host:*", "*:*".
 func validateAddressPattern(pattern string) error {
 	if pattern == "" {
 		return apis.ErrInvalidValue(pattern, "", "address pattern cannot be empty")
 	}
-	// All patterns must contain a colon separator between host and port
-	if !strings.Contains(pattern, ":") {
+
+	host, port, ok := strings.Cut(pattern, ":")
+	if !ok || host == "" || port == "" {
 		return apis.ErrInvalidValue(pattern, "", "address pattern must be in format 'host:port'")
 	}
-	// Validate minimum length (e.g., "*:*" is 3 chars)
-	if len(pattern) < 3 {
-		return apis.ErrInvalidValue(pattern, "", "address pattern must be in format 'host:port'")
+
+	// Validate host: must be '*' or a valid hostname/IP.
+	if host != "*" && !isValidHost(host) {
+		return apis.ErrInvalidValue(pattern, "", "host must be '*' or a valid hostname/IP")
 	}
+
+	// Validate port: must be '*' or numeric.
+	if port != "*" {
+		if _, err := strconv.Atoi(port); err != nil {
+			return apis.ErrInvalidValue(pattern, "", "port must be '*' or numeric")
+		}
+	}
+
 	return nil
+}
+
+// isValidHost checks if the host is a valid hostname or IP address.
+func isValidHost(host string) bool {
+	// Check for IP address (IPv4 or IPv6).
+	if ip := net.ParseIP(host); ip != nil {
+		return true
+	}
+	// Basic hostname validation: non-empty, no spaces, reasonable characters.
+	if strings.ContainsAny(host, " \t\n\r") {
+		return false
+	}
+
+	return true
 }
