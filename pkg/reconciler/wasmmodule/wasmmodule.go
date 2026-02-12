@@ -248,15 +248,10 @@ func buildRunnerConfig(wm *api.WasmModule) (string, error) {
 				return "", fmt.Errorf("volume mount %s references undefined volume %s", vm.MountPath, vm.Name)
 			}
 
-			// The hostPath is where Kubernetes mounts the volume - vm.MountPath
-			// If SubPath is specified, it's a subdirectory within the mounted volume
-			hostPath := vm.MountPath
-			if vm.SubPath != "" {
-				hostPath = fmt.Sprintf("%s/%s", vm.MountPath, vm.SubPath)
-			}
-
+			// With Kubernetes subPath, the subdirectory content is mounted directly
+			// at vm.MountPath, so hostPath is always just vm.MountPath.
 			config.Dirs = append(config.Dirs, RunnerDirConfig{
-				HostPath:  hostPath,
+				HostPath:  vm.MountPath,
 				GuestPath: vm.MountPath,
 				ReadOnly:  vm.ReadOnly,
 			})
