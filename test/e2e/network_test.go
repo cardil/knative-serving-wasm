@@ -302,8 +302,9 @@ func TestNetworkNoPermission(t *testing.T) {
 	requestURL := fmt.Sprintf("%s?url=%s", url, targetURL)
 
 	response, err := tc.HTTPGet(ctx, requestURL)
-	// We expect either an HTTP error or an error response in the body
-	if err == nil && !strings.Contains(response, "error") && !strings.Contains(response, "denied") {
+	// We expect either an HTTP error or an error/denied indicator in the body
+	responseLower := strings.ToLower(response)
+	if err == nil && !strings.Contains(responseLower, "error") && !strings.Contains(responseLower, "denied") {
 		t.Errorf("Expected network request to fail without permissions, but got success: %s", response)
 	}
 

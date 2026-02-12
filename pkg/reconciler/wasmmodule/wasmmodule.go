@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	"knative.dev/pkg/logging"
@@ -164,11 +163,7 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 			Labels:      module.Labels,
 			Annotations: module.Annotations,
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(module, schema.GroupVersionKind{
-					Group:   "wasm.knative.dev",
-					Version: "v1alpha1",
-					Kind:    "WasmModule",
-				}),
+				*metav1.NewControllerRef(module, module.GetGroupVersionKind()),
 			},
 		},
 		Spec: servingv1.ServiceSpec{

@@ -547,8 +547,10 @@ func (tc *TestContext) HTTPGet(ctx context.Context, targetURL string) (string, e
 			return string(body), nil
 		}
 
-		// Retry on 404 (ingress not ready yet)
-		if resp.StatusCode == http.StatusNotFound {
+		// Retry on 404/502/503 (ingress not ready yet or upstream unavailable)
+		if resp.StatusCode == http.StatusNotFound ||
+			resp.StatusCode == http.StatusBadGateway ||
+			resp.StatusCode == http.StatusServiceUnavailable {
 			lastErr = fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			lastBody = string(body)
 			time.Sleep(retryInterval)
