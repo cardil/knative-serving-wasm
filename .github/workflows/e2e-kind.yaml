@@ -65,7 +65,8 @@ jobs:
       run: |
         .github/scripts/cleanup-e2e-images.sh \
           "${{ github.event.pull_request.number || github.run_id }}" \
-          "${{ github.repository_owner }}"
+          "${{ github.repository_owner }}" \
+          "${{ github.event.repository.name }}"
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
