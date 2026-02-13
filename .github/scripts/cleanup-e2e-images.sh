@@ -37,7 +37,7 @@ for suffix in "${PACKAGE_SUFFIXES[@]}"; do
   
   if [ "$deleted" = "true" ]; then
     echo "✅ Deleted: ${package_name}"
-    ((DELETED++))
+    DELETED=$((DELETED + 1))
   else
     # Check if it's a 404 (package doesn't exist) or a real error
     if echo "$output" | grep -qi "not found.*404\|package not found"; then
