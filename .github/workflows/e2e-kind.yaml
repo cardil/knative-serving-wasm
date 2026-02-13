@@ -61,22 +61,23 @@ jobs:
         ARTIFACTS: ${{ github.workspace }}/artifacts
 
     - name: Delete e2e images from ghcr.io
-      if: always() && github.event_name == 'pull_request'
+      if: always()
       continue-on-error: true
       run: |
         set -o pipefail
         
-        # Delete all PR-specific images to avoid accumulation
+        # Delete all test run-specific images to avoid accumulation
         # Package names are like: knative-serving-wasm/e2e-6/runner
         RUN_ID=${{ github.event.pull_request.number || github.run_id }}
         PATTERN="e2e-${RUN_ID}"
         FAILED=0
+        OWNER="${{ github.repository_owner }}"
         
         echo "Deleting packages containing: ${PATTERN}"
         
-        # List packages matching the PR pattern and delete them
-        # Package names contain slashes, so we need URL-encoding for the delete API
-        PACKAGES=$(gh api "/user/packages?package_type=container" --jq ".[] | select(.name | contains(\"${PATTERN}\")) | .name" 2>&1) || {
+        # List packages matching the pattern and delete them
+        # Packages are user-scoped but linked to repository, use /users/{owner}/packages
+        PACKAGES=$(gh api "/users/${OWNER}/packages?package_type=container" --jq ".[] | select(.name | contains(\"${PATTERN}\")) | .name" 2>&1) || {
           echo "::warning::Failed to list packages: ${PACKAGES}"
           exit 1
         }
@@ -90,7 +91,7 @@ jobs:
           # URL-encode the package name (slashes become %2F)
           encoded_name=$(printf '%s' "$package_name" | jq -sRr @uri)
           echo "Deleting package: ${package_name}"
-          if ! gh api --method DELETE "/user/packages/container/${encoded_name}" 2>&1; then
+          if ! gh api --method DELETE "/users/${OWNER}/packages/container/${encoded_name}" 2>&1; then
             echo "::warning::Failed to delete package: ${package_name}"
             FAILED=1
           fi
