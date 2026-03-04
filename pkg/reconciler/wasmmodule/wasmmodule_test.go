@@ -76,8 +76,14 @@ func TestBuildRunnerConfigMatchesGolden(t *testing.T) {
 		t.Fatalf("unmarshal golden: %v", err)
 	}
 
-	gotJSON, _ := json.MarshalIndent(gotMap, "", "  ")
-	wantJSON, _ := json.MarshalIndent(wantMap, "", "  ")
+	gotJSON, err := json.MarshalIndent(gotMap, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal got normalized JSON: %v", err)
+	}
+	wantJSON, err := json.MarshalIndent(wantMap, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal golden normalized JSON: %v", err)
+	}
 
 	if string(gotJSON) != string(wantJSON) {
 		t.Errorf("buildRunnerConfig output does not match golden.\ngot:\n%s\n\nwant:\n%s", gotJSON, wantJSON)
