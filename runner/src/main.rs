@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     println!("  Image: {}", wasi_config.image);
     println!("  Args: {:?}", wasi_config.args);
     println!("  Env vars: {} entries", wasi_config.env.len());
-    println!("  Volume mounts: {} entries", wasi_config.volume_mounts.len());
+    println!("  Dirs: {} entries", wasi_config.dirs.len());
     if let Some(memory) = wasi_config.resources.get_memory() {
         println!("  Memory: {}", memory);
     }

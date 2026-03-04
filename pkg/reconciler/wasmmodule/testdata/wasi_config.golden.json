@@ -1,0 +1,12 @@
+{
+  "args": ["--verbose"],
+  "env": {"GREETING": "hello", "PORT": "8080"},
+  "dirs": [
+    {"hostPath": "/mnt/data", "guestPath": "/mnt/data", "readOnly": false},
+    {"hostPath": "/mnt/ro",   "guestPath": "/mnt/ro",   "readOnly": true}
+  ],
+  "network": {
+    "allowIpNameLookup": true,
+    "tcpConnect": ["example.com:443"]
+  }
+}

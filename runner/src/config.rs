@@ -23,45 +23,37 @@ pub struct WasiConfig {
     /// OCI image containing the WASM module
     #[serde(default)]
     pub image: String,
-    
+
     /// Command line arguments to pass to the WASM module
     #[serde(default)]
     pub args: Vec<String>,
-    
-    /// Environment variables to set in the WASM module
+
+    /// Environment variables to set in the WASM module.
+    /// Serialized as a JSON object (map) by the controller: {"KEY": "VALUE"}.
     #[serde(default)]
-    pub env: Vec<EnvVar>,
-    
-    /// Volume mounts to expose as WASI preopened directories
+    pub env: HashMap<String, String>,
+
+    /// Directory mounts to expose as WASI preopened directories.
+    /// Serialized as "dirs" by the controller.
     #[serde(default)]
-    pub volume_mounts: Vec<VolumeMount>,
-    
+    pub dirs: Vec<DirConfig>,
+
     /// Resource requirements (memory, CPU limits)
     #[serde(default)]
     pub resources: ResourceRequirements,
-    
+
     /// Network access configuration
     pub network: Option<NetworkSpec>,
 }
 
-/// Environment variable configuration
-#[derive(Debug, Deserialize, Clone)]
-pub struct EnvVar {
-    pub name: String,
-    #[serde(default)]
-    pub value: String,
-}
-
-/// Volume mount configuration
+/// Directory mount configuration as produced by the controller.
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct VolumeMount {
-    pub name: String,
-    pub mount_path: String,
+pub struct DirConfig {
+    pub host_path: String,
+    pub guest_path: String,
     #[serde(default)]
     pub read_only: bool,
-    #[serde(default)]
-    pub sub_path: String,
 }
 
 /// Resource requirements for the WASM module
@@ -135,5 +127,44 @@ impl WasiConfig {
                 Ok(WasiConfig::default())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Contract test: the runner must parse the exact JSON produced by the controller.
+    /// The golden file is the single source of truth for the wire format.
+    /// Both sides must agree: update the golden file and this test together.
+    #[test]
+    fn test_parse_golden_wasi_config() {
+        let golden = std::fs::read_to_string(
+            "../pkg/reconciler/wasmmodule/testdata/wasi_config.golden.json",
+        )
+        .expect("golden file must exist");
+
+        let config: WasiConfig = serde_json::from_str(&golden)
+            .expect("golden JSON must parse into WasiConfig");
+
+        // env is a map in the wire format
+        assert_eq!(config.env.get("GREETING"), Some(&"hello".to_string()));
+        assert_eq!(config.env.get("PORT"), Some(&"8080".to_string()));
+
+        // dirs (not volumeMounts) with hostPath/guestPath
+        assert_eq!(config.dirs.len(), 2);
+        assert_eq!(config.dirs[0].host_path, "/mnt/data");
+        assert_eq!(config.dirs[0].guest_path, "/mnt/data");
+        assert!(!config.dirs[0].read_only);
+        assert_eq!(config.dirs[1].host_path, "/mnt/ro");
+        assert!(config.dirs[1].read_only);
+
+        // args
+        assert_eq!(config.args, vec!["--verbose"]);
+
+        // network
+        let net = config.network.as_ref().expect("network must be present");
+        assert!(net.allow_ip_name_lookup);
+        assert_eq!(net.tcp_connect, vec!["example.com:443"]);
     }
 }
