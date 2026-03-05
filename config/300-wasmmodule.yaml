@@ -242,7 +242,7 @@ spec:
                         Defaults to false.
                       type: boolean
                     tcp:
-                      description: Tcp specifies TCP socket permissions.
+                      description: TCP specifies TCP socket permissions.
                       type: object
                       properties:
                         bind:
@@ -256,7 +256,7 @@ spec:
                           items:
                             type: string
                     udp:
-                      description: Udp specifies UDP socket permissions.
+                      description: UDP specifies UDP socket permissions.
                       type: object
                       properties:
                         bind:

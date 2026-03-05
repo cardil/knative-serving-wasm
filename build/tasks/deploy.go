@@ -1,3 +1,17 @@
+// Copyright 2026 The Knative Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package tasks
 
 import (
@@ -7,10 +21,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/cardil/ghet/pkg/ghet/download"
-	"github.com/cardil/ghet/pkg/ghet/install"
-	"github.com/cardil/ghet/pkg/github"
 	executil "github.com/cardil/knative-serving-wasm/build/util/exec"
+	"github.com/cardil/knative-serving-wasm/build/util/tools"
 	"github.com/goyek/goyek/v2"
 	"github.com/goyek/x/cmd"
 	"go.yaml.in/yaml/v2"
@@ -101,8 +113,9 @@ func koApplyWithFlags(a *goyek.A, e2eMode bool) {
 		a.Fatalf("Failed to write ko config: %v", err)
 	}
 
+	ko := tools.Ghet(a, "ko")
 	executil.ExecOrDie(a, spaceJoin(
-		"go", "run", "github.com/google/ko@latest", "apply",
+		ko, "apply",
 		"-B", "-f", "config/",
 	), cmd.Env("KO_CONFIG_PATH", koConfigPath))
 }
@@ -113,9 +126,8 @@ func Undeploy() goyek.Task {
 		Usage: "Removes the controller from Kubernetes",
 		Action: func(a *goyek.A) {
 			setupKoEnv(a)
-			executil.ExecOrDie(a,
-				"go run github.com/google/ko@latest delete -f config/",
-			)
+			ko := tools.Ghet(a, "ko")
+			executil.ExecOrDie(a, spaceJoin(ko, "delete", "-f", "config/"))
 		},
 	}
 }
@@ -149,8 +161,7 @@ func Images() goyek.Task {
 
 func pushExamples(a *goyek.A) {
 	a.Helper()
-	installWkg(a)
-	wkg := wkgPath()
+	wkg := tools.Ghet(a, "wkg")
 	repo := os.Getenv(koDockerRepo)
 
 	for _, mod := range wasmModules {
@@ -190,42 +201,6 @@ func setupKoEnv(a *goyek.A) {
 	if _, ok := os.LookupEnv(koDockerRepo); !ok {
 		a.Setenv(koDockerRepo, os.Getenv("IMAGE_BASENAME"))
 	}
-}
-
-func installWkg(a *goyek.A) {
-	a.Helper()
-
-	plan := wkgPlan()
-	bin := plan.Asset.FileName.ToString()
-	pth := path.Join(plan.Destination, bin)
-	if _, err := os.Stat(pth); err == nil {
-		a.Log("Already installed: ", bin)
-
-		return
-	}
-
-	if err := download.Action(a.Context(), plan); err != nil {
-		a.Fatal(err)
-	}
-}
-
-func wkgPlan() download.Args {
-	binSpec := "bytecodealliance/wasm-pkg-tools@v0.11.0"
-	destination := path.Join("build", "output", "tools")
-	p := download.Args{
-		Args:        install.Parse(binSpec),
-		Destination: destination,
-	}
-	p.FileName = github.NewFileName("wkg")
-
-	return p
-}
-
-func wkgPath() string {
-	plan := wkgPlan()
-	bin := plan.Asset.FileName.ToString()
-
-	return path.Join(plan.Destination, bin)
 }
 
 func spaceJoin(parts ...string) string {

@@ -1,4 +1,4 @@
-// Copyright 2025 The Knative Authors
+// Copyright 2026 The Knative Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -27,23 +28,23 @@ import (
 )
 
 const (
-	// DefaultLocalRegistry is the default local registry for e2e tests
+	// DefaultLocalRegistry is the default local registry for e2e tests.
 	DefaultLocalRegistry = "localhost:5001"
 
-	// E2EImageBasenameEnv is the environment variable for specifying test image basename
+	// E2EImageBasenameEnv is the environment variable for specifying test image basename.
 	E2EImageBasenameEnv = "E2E_IMAGE_BASENAME"
 
-	// ImageBasenameEnv is the environment variable for image basename
+	// ImageBasenameEnv is the environment variable for image basename.
 	ImageBasenameEnv = "IMAGE_BASENAME"
 
-	// E2ETestTimeoutEnv is the environment variable for individual test timeout in seconds
+	// E2ETestTimeoutEnv is the environment variable for individual test timeout in seconds.
 	E2ETestTimeoutEnv = "E2E_TEST_TIMEOUT"
 
-	// DefaultTestTimeout is the default timeout for individual e2e tests
+	// DefaultTestTimeout is the default timeout for individual e2e tests.
 	DefaultTestTimeout = 1 * time.Minute
 )
 
-// Config holds e2e test configuration
+// Config holds e2e test configuration.
 type Config struct {
 	// Namespace is the Kubernetes namespace for tests
 	Namespace string
@@ -52,8 +53,8 @@ type Config struct {
 	ImageBasename string
 }
 
-// GetE2EImageBasename returns the image basename to use for e2e tests with safety checks
-func GetE2EImageBasename() (string, error) {
+// GetE2EImageBasename returns the image basename to use for e2e tests with safety checks.
+func GetE2EImageBasename(ctx context.Context) (string, error) {
 	// Load .env file to get production IMAGE_BASENAME
 	productionBasename := ""
 	if envMap, err := godotenv.Read(".env"); err == nil {
@@ -73,7 +74,7 @@ func GetE2EImageBasename() (string, error) {
 	}
 
 	// Try to detect local registry and construct basename
-	if isLocalRegistryAvailable() {
+	if isLocalRegistryAvailable(ctx) {
 		return DefaultLocalRegistry + "/knative-serving-wasm", nil
 	}
 
@@ -85,29 +86,33 @@ func GetE2EImageBasename() (string, error) {
 	)
 }
 
-// isLocalRegistryAvailable checks if local registry is reachable
-func isLocalRegistryAvailable() bool {
-	conn, err := net.DialTimeout("tcp", DefaultLocalRegistry, 2*time.Second)
+// isLocalRegistryAvailable checks if local registry is reachable.
+func isLocalRegistryAvailable(ctx context.Context) bool {
+	dialer := &net.Dialer{Timeout: 2 * time.Second}
+
+	conn, err := dialer.DialContext(ctx, "tcp", DefaultLocalRegistry)
 	if err != nil {
 		return false
 	}
 	defer conn.Close()
+
 	return true
 }
 
-// GetTestTimeout returns the individual test timeout from environment or default
+// GetTestTimeout returns the individual test timeout from environment or default.
 func GetTestTimeout() time.Duration {
 	if timeoutStr := os.Getenv(E2ETestTimeoutEnv); timeoutStr != "" {
 		if seconds, err := strconv.Atoi(timeoutStr); err == nil && seconds > 0 {
 			return time.Duration(seconds) * time.Second
 		}
 	}
+
 	return DefaultTestTimeout
 }
 
-// NewConfig creates a new e2e test configuration
-func NewConfig(namespace string) (*Config, error) {
-	imageBasename, err := GetE2EImageBasename()
+// NewConfig creates a new e2e test configuration.
+func NewConfig(ctx context.Context, namespace string) (*Config, error) {
+	imageBasename, err := GetE2EImageBasename(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -118,12 +123,12 @@ func NewConfig(namespace string) (*Config, error) {
 	}, nil
 }
 
-// RunnerImage returns the full runner image reference
+// RunnerImage returns the full runner image reference.
 func (c *Config) RunnerImage() string {
 	return c.ImageBasename + "/runner"
 }
 
-// ExampleImage returns the full example module image reference
+// ExampleImage returns the full example module image reference.
 func (c *Config) ExampleImage(name string) string {
 	return c.ImageBasename + "/example/" + name
 }
