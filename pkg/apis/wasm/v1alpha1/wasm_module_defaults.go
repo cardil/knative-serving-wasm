@@ -36,8 +36,8 @@ func (ass *WasmModuleSpec) SetDefaults() {
 // SetDefaults sets default values for NetworkSpec.
 func (ns *NetworkSpec) SetDefaults() {
 	// Default allowIpNameLookup to true when network is configured but field is nil
-	if ns.AllowIpNameLookup == nil {
+	if ns.AllowIPNameLookup == nil {
 		trueVal := true
-		ns.AllowIpNameLookup = &trueVal
+		ns.AllowIPNameLookup = &trueVal
 	}
 }

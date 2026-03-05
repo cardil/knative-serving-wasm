@@ -12,6 +12,9 @@ linters:
     - ireturn
     - wsl
     - godox
+    - varnamelen
+    - noinlineerr
+    - godoclint
   exclusions:
     generated: lax
     presets:
@@ -19,6 +22,15 @@ linters:
       - common-false-positives
       - legacy
       - std-error-handling
+    rules:
+      - path: "test/e2e"
+        linters:
+          - testpackage
+          - paralleltest
+          - err113
+          - mnd
+          - gochecknoglobals
+          - forbidigo
 
 formatters:
   exclusions:

@@ -17,7 +17,6 @@
 package e2e
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -28,13 +27,12 @@ import (
 	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 )
 
-// TestBasicDeployment tests basic WasmModule deployment with reverse-text
+// TestBasicDeployment tests basic WasmModule deployment with reverse-text.
 func TestBasicDeployment(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
-	defer cancel()
-
+	ctx := t.Context()
 	namespace := fmt.Sprintf("e2e-basic-%d", time.Now().Unix())
-	tc, err := newTestContext(t, namespace)
+
+	tc, err := newTestContext(ctx, t, namespace)
 	if err != nil {
 		t.Fatalf("Failed to create test context: %v", err)
 	}
@@ -92,11 +90,12 @@ func TestBasicDeployment(t *testing.T) {
 	t.Logf("Successfully verified reverse-text response: %s", response)
 }
 
-// reverseString reverses a string
+// reverseString reverses a string.
 func reverseString(s string) string {
 	runes := []rune(s)
 	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
 		runes[i], runes[j] = runes[j], runes[i]
 	}
+
 	return string(runes)
 }

@@ -59,36 +59,55 @@ func (ass *WasmModuleSpec) Validate(_ context.Context) *apis.FieldError {
 func (ns *NetworkSpec) Validate() *apis.FieldError {
 	var errs *apis.FieldError
 
-	// Validate TCP configuration
-	if ns.Tcp != nil {
-		for i, addr := range ns.Tcp.Bind {
-			if err := validateAddressPattern(addr); err != nil {
-				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "tcp.bind", i))
-			}
-		}
-		for i, addr := range ns.Tcp.Connect {
-			if err := validateAddressPattern(addr); err != nil {
-				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "tcp.connect", i))
-			}
+	if ns.TCP != nil {
+		errs = errs.Also(validateTCPSpec(ns.TCP))
+	}
+
+	if ns.UDP != nil {
+		errs = errs.Also(validateUDPSpec(ns.UDP))
+	}
+
+	return errs
+}
+
+// validateTCPSpec validates TCP socket configuration.
+func validateTCPSpec(tcp *TCPSpec) *apis.FieldError {
+	var errs *apis.FieldError
+
+	for i, addr := range tcp.Bind {
+		if err := validateAddressPattern(addr); err != nil {
+			errs = errs.Also(apis.ErrInvalidArrayValue(addr, "tcp.bind", i))
 		}
 	}
 
-	// Validate UDP configuration
-	if ns.Udp != nil {
-		for i, addr := range ns.Udp.Bind {
-			if err := validateAddressPattern(addr); err != nil {
-				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.bind", i))
-			}
+	for i, addr := range tcp.Connect {
+		if err := validateAddressPattern(addr); err != nil {
+			errs = errs.Also(apis.ErrInvalidArrayValue(addr, "tcp.connect", i))
 		}
-		for i, addr := range ns.Udp.Connect {
-			if err := validateAddressPattern(addr); err != nil {
-				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.connect", i))
-			}
+	}
+
+	return errs
+}
+
+// validateUDPSpec validates UDP socket configuration.
+func validateUDPSpec(udp *UDPSpec) *apis.FieldError {
+	var errs *apis.FieldError
+
+	for i, addr := range udp.Bind {
+		if err := validateAddressPattern(addr); err != nil {
+			errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.bind", i))
 		}
-		for i, addr := range ns.Udp.Outgoing {
-			if err := validateAddressPattern(addr); err != nil {
-				errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.outgoing", i))
-			}
+	}
+
+	for i, addr := range udp.Connect {
+		if err := validateAddressPattern(addr); err != nil {
+			errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.connect", i))
+		}
+	}
+
+	for i, addr := range udp.Outgoing {
+		if err := validateAddressPattern(addr); err != nil {
+			errs = errs.Also(apis.ErrInvalidArrayValue(addr, "udp.outgoing", i))
 		}
 	}
 

@@ -17,7 +17,6 @@
 package e2e
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -28,13 +27,12 @@ import (
 	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 )
 
-// TestNetworkInherit tests WasmModule with network.inherit=true
+// TestNetworkInherit tests WasmModule with network.inherit=true.
 func TestNetworkInherit(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
-	defer cancel()
-
+	ctx := t.Context()
 	namespace := fmt.Sprintf("e2e-net-inherit-%d", time.Now().Unix())
-	tc, err := newTestContext(t, namespace)
+
+	tc, err := newTestContext(ctx, t, namespace)
 	if err != nil {
 		t.Fatalf("Failed to create test context: %v", err)
 	}
@@ -99,30 +97,25 @@ func TestNetworkInherit(t *testing.T) {
 	t.Logf("Successfully verified network.inherit allows outbound connection: %s", response)
 }
 
-// TestNetworkTcpConnectSpecific tests WasmModule with specific tcp.connect permissions
+// TestNetworkTcpConnectSpecific tests WasmModule with specific tcp.connect permissions.
 func TestNetworkTcpConnectSpecific(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
-	defer cancel()
-
+	ctx := t.Context()
 	namespace := fmt.Sprintf("e2e-net-tcp-%d", time.Now().Unix())
-	tc, err := newTestContext(t, namespace)
+
+	tc, err := newTestContext(ctx, t, namespace)
 	if err != nil {
 		t.Fatalf("Failed to create test context: %v", err)
 	}
 	defer tc.Cleanup()
 
-	// Create namespace
 	if err := tc.CreateNamespace(ctx); err != nil {
 		t.Fatalf("Failed to create namespace: %v", err)
 	}
 
-	// Deploy echo server
 	if err := tc.DeployEchoServer(ctx); err != nil {
 		t.Fatalf("Failed to deploy echo server: %v", err)
 	}
 
-	// Create WasmModule with specific tcp.connect permission
-	// Use full FQDN for DNS resolution (required on GKE, works on all clusters)
 	echoServerHost := fmt.Sprintf("echo-server.%s.svc.cluster.local:80", namespace)
 	wasmModule := &wasmv1alpha1.WasmModule{
 		ObjectMeta: metav1.ObjectMeta{
@@ -132,7 +125,7 @@ func TestNetworkTcpConnectSpecific(t *testing.T) {
 		Spec: wasmv1alpha1.WasmModuleSpec{
 			Image: tc.Config.ExampleImage("http-fetch"),
 			Network: &wasmv1alpha1.NetworkSpec{
-				Tcp: &wasmv1alpha1.TcpSpec{
+				TCP: &wasmv1alpha1.TCPSpec{
 					Connect: []string{echoServerHost},
 				},
 			},
@@ -156,7 +149,7 @@ func TestNetworkTcpConnectSpecific(t *testing.T) {
 	}
 
 	// Test HTTP request to echo server (should succeed)
-	targetURL := fmt.Sprintf("http://%s", echoServerHost)
+	targetURL := "http://" + echoServerHost
 	requestURL := fmt.Sprintf("%s?url=%s", url, targetURL)
 
 	response, err := tc.HTTPGet(ctx, requestURL)
@@ -172,29 +165,25 @@ func TestNetworkTcpConnectSpecific(t *testing.T) {
 	t.Logf("Successfully verified tcp.connect allows connection to specified host: %s", response)
 }
 
-// TestNetworkTcpConnectWildcard tests WasmModule with wildcard tcp.connect permissions
+// TestNetworkTcpConnectWildcard tests WasmModule with wildcard tcp.connect permissions.
 func TestNetworkTcpConnectWildcard(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
-	defer cancel()
-
+	ctx := t.Context()
 	namespace := fmt.Sprintf("e2e-net-wildcard-%d", time.Now().Unix())
-	tc, err := newTestContext(t, namespace)
+
+	tc, err := newTestContext(ctx, t, namespace)
 	if err != nil {
 		t.Fatalf("Failed to create test context: %v", err)
 	}
 	defer tc.Cleanup()
 
-	// Create namespace
 	if err := tc.CreateNamespace(ctx); err != nil {
 		t.Fatalf("Failed to create namespace: %v", err)
 	}
 
-	// Deploy echo server
 	if err := tc.DeployEchoServer(ctx); err != nil {
 		t.Fatalf("Failed to deploy echo server: %v", err)
 	}
 
-	// Create WasmModule with wildcard tcp.connect permission
 	wasmModule := &wasmv1alpha1.WasmModule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "http-fetch-wildcard",
@@ -203,7 +192,7 @@ func TestNetworkTcpConnectWildcard(t *testing.T) {
 		Spec: wasmv1alpha1.WasmModuleSpec{
 			Image: tc.Config.ExampleImage("http-fetch"),
 			Network: &wasmv1alpha1.NetworkSpec{
-				Tcp: &wasmv1alpha1.TcpSpec{
+				TCP: &wasmv1alpha1.TCPSpec{
 					Connect: []string{"*:80"},
 				},
 			},
@@ -245,13 +234,12 @@ func TestNetworkTcpConnectWildcard(t *testing.T) {
 	t.Logf("Successfully verified wildcard tcp.connect allows connection: %s", response)
 }
 
-// TestNetworkNoPermission tests WasmModule without network permissions (should fail)
+// TestNetworkNoPermission tests WasmModule without network permissions (should fail).
 func TestNetworkNoPermission(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), GetTestTimeout())
-	defer cancel()
-
+	ctx := t.Context()
 	namespace := fmt.Sprintf("e2e-net-none-%d", time.Now().Unix())
-	tc, err := newTestContext(t, namespace)
+
+	tc, err := newTestContext(ctx, t, namespace)
 	if err != nil {
 		t.Fatalf("Failed to create test context: %v", err)
 	}

@@ -23,6 +23,7 @@ func Test(f *goyek.Flow) {
 		Usage: "Run tests",
 		Deps: goyek.Deps{
 			f.Define(Unit()),
+			f.Define(Lint()),
 			f.Define(BuildTest()),
 			f.Define(E2e()),
 		},

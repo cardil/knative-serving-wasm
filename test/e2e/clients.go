@@ -17,6 +17,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -28,40 +29,44 @@ import (
 )
 
 var (
-	// globalKubeClient is the Kubernetes client for all tests
+	// globalKubeClient is the Kubernetes client for all tests.
 	globalKubeClient kubernetes.Interface
 
-	// globalWasmClient is the WasmModule client for all tests
+	// globalWasmClient is the WasmModule client for all tests.
 	globalWasmClient wasmclientset.Interface
 
-	// clientsOnce ensures clients are initialized only once
+	// clientsOnce ensures clients are initialized only once.
 	clientsOnce sync.Once
 
-	// clientsInitErr stores any error from client initialization
-	clientsInitErr error
+	// errClientsInit stores any error from client initialization.
+	errClientsInit error
 )
 
-// ensureClients initializes Kubernetes clients lazily on first use
-func ensureClients() error {
+// ensureClients initializes Kubernetes clients lazily on first use.
+func ensureClients(ctx context.Context) error {
 	clientsOnce.Do(func() {
 		// Verify image basename configuration
-		imageBasename, err := GetE2EImageBasename()
+		imageBasename, err := GetE2EImageBasename(ctx)
 		if err != nil {
-			clientsInitErr = fmt.Errorf("E2E image basename check failed: %w", err)
+			errClientsInit = fmt.Errorf("E2E image basename check failed: %w", err)
+
 			return
 		}
+
 		fmt.Printf("Using e2e image basename: %s\n", imageBasename)
 
 		// Initialize Kubernetes clients
 		if err := initClients(); err != nil {
-			clientsInitErr = fmt.Errorf("failed to initialize clients: %w", err)
+			errClientsInit = fmt.Errorf("failed to initialize clients: %w", err)
+
 			return
 		}
 	})
-	return clientsInitErr
+
+	return errClientsInit
 }
 
-// initClients initializes Kubernetes and WasmModule clients
+// initClients initializes Kubernetes and WasmModule clients.
 func initClients() error {
 	// Load kubeconfig
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
@@ -92,17 +97,22 @@ func initClients() error {
 	}
 
 	fmt.Println("Successfully connected to Kubernetes cluster")
+
 	return nil
 }
 
-// newTestContext creates a new test context for a test
-func newTestContext(t *testing.T, namespace string) (*TestContext, error) {
+// newTestContext creates a new test context for a test.
+//
+//nolint:thelper // not a test helper
+func newTestContext(
+	ctx context.Context, t *testing.T, namespace string,
+) (*TestContext, error) {
 	// Ensure clients are initialized before creating test context
-	if err := ensureClients(); err != nil {
+	if err := ensureClients(ctx); err != nil {
 		return nil, err
 	}
 
-	config, err := NewConfig(namespace)
+	config, err := NewConfig(ctx, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
