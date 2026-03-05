@@ -140,7 +140,10 @@ mod tests {
     #[test]
     fn test_parse_golden_wasi_config() {
         let golden = std::fs::read_to_string(
-            "../pkg/reconciler/wasmmodule/testdata/wasi_config.golden.json",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../pkg/reconciler/wasmmodule/testdata/wasi_config.golden.json"
+            ),
         )
         .expect("golden file must exist");
 
