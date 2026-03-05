@@ -1,0 +1,14 @@
+ghet:
+  # golangci-lint version must match the one pinned by the Knative reusable style workflow.
+  # See: https://github.com/knative/actions/blob/main/.github/workflows/reusable-helper-go-style.yaml#L87
+  golangci-lint:
+    ref: golangci/golangci-lint
+    version: v2.5.0
+
+  # latest working versions, pinned for reproducibility.
+  ko:
+    ref: ko-build/ko
+    version: v0.18.1
+  wkg:
+    ref: bytecodealliance/wasm-pkg-tools
+    version: v0.11.0
