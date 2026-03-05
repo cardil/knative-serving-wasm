@@ -168,35 +168,28 @@ fn build_wasi_ctx(config: &WasiConfig) -> Result<WasiCtx> {
     }
     
     // Add environment variables
-    for env_var in &config.env {
-        builder.env(&env_var.name, &env_var.value);
+    for (key, val) in &config.env {
+        builder.env(key, val);
     }
-    
-    // Add preopened directories from volume mounts
-    for mount in &config.volume_mounts {
+
+    // Add preopened directories
+    for dir in &config.dirs {
         use std::path::PathBuf;
         use wasmtime_wasi::{DirPerms, FilePerms};
-        
-        // Build the host path, applying subPath if specified
-        let host_path: PathBuf = if mount.sub_path.is_empty() {
-            PathBuf::from(&mount.mount_path)
-        } else {
-            PathBuf::from(&mount.mount_path).join(&mount.sub_path)
-        };
-        
-        let guest_path = &mount.mount_path;
-        
-        let (dir_perms, file_perms) = if mount.read_only {
+
+        let host_path = PathBuf::from(&dir.host_path);
+        let guest_path = &dir.guest_path;
+
+        let (dir_perms, file_perms) = if dir.read_only {
             (DirPerms::READ, FilePerms::READ)
         } else {
             (DirPerms::all(), FilePerms::all())
         };
-        
+
         // Fail fast if the directory doesn't exist
         if !host_path.exists() {
             return Err(anyhow::anyhow!(
-                "Volume mount '{}' path does not exist: {}",
-                mount.name,
+                "Dir mount host path does not exist: {}",
                 host_path.display()
             ));
         }

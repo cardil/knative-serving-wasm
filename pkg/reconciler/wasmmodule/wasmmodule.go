@@ -134,7 +134,7 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 	serviceName := module.Name
 
 	// Build WASI config for the runner
-	wasiConfig, err := buildRunnerConfig(module)
+	wasiConfig, err := BuildRunnerConfig(module)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build runner config: %w", err)
 	}
@@ -220,8 +220,8 @@ type RunnerNetworkConfig struct {
 	UDPOutgoing       []string `json:"udpOutgoing,omitempty"`
 }
 
-// buildRunnerConfig builds the WASI configuration JSON for the runner.
-func buildRunnerConfig(wm *api.WasmModule) (string, error) {
+// BuildRunnerConfig builds the WASI configuration JSON for the runner.
+func BuildRunnerConfig(wm *api.WasmModule) (string, error) {
 	config := RunnerWasiConfig{
 		Args: wm.Spec.Args,
 	}
