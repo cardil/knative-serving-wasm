@@ -15,3 +15,4 @@ on:
 jobs:
   test:
     uses: knative/actions/.github/workflows/reusable-go-test.yaml@main
+    secrets: inherit
