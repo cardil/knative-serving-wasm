@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package wasmmodule
+package wasmmodule_test
 
 import (
 	"encoding/json"
@@ -22,14 +22,17 @@ import (
 	"testing"
 
 	api "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
+	"github.com/cardil/knative-serving-wasm/pkg/reconciler/wasmmodule"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // TestBuildRunnerConfigMatchesGolden verifies that the JSON produced by
-// buildRunnerConfig matches the documented wire format that the runner parses.
+// BuildRunnerConfig matches the documented wire format that the runner parses.
 // If this test fails, both the golden file and the runner must be updated together.
 func TestBuildRunnerConfigMatchesGolden(t *testing.T) {
+	t.Parallel()
+
 	trueVal := true
 	module := &api.WasmModule{
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
@@ -50,17 +53,17 @@ func TestBuildRunnerConfigMatchesGolden(t *testing.T) {
 			},
 			Network: &api.NetworkSpec{
 				Inherit:           false,
-				AllowIpNameLookup: &trueVal,
-				Tcp: &api.TcpSpec{
+				AllowIPNameLookup: &trueVal,
+				TCP: &api.TCPSpec{
 					Connect: []string{"example.com:443"},
 				},
 			},
 		},
 	}
 
-	got, err := buildRunnerConfig(module)
+	got, err := wasmmodule.BuildRunnerConfig(module)
 	if err != nil {
-		t.Fatalf("buildRunnerConfig() error: %v", err)
+		t.Fatalf("BuildRunnerConfig() error: %v", err)
 	}
 
 	goldenBytes, err := os.ReadFile("testdata/wasi_config.golden.json")
@@ -68,24 +71,33 @@ func TestBuildRunnerConfigMatchesGolden(t *testing.T) {
 		t.Fatalf("read golden file: %v", err)
 	}
 
+	assertJSONEqual(t, got, string(goldenBytes))
+}
+
+func assertJSONEqual(t *testing.T, got, want string) {
+	t.Helper()
+
 	var gotMap, wantMap any
+
 	if err := json.Unmarshal([]byte(got), &gotMap); err != nil {
 		t.Fatalf("unmarshal got: %v", err)
 	}
-	if err := json.Unmarshal(goldenBytes, &wantMap); err != nil {
-		t.Fatalf("unmarshal golden: %v", err)
+
+	if err := json.Unmarshal([]byte(want), &wantMap); err != nil {
+		t.Fatalf("unmarshal want: %v", err)
 	}
 
 	gotJSON, err := json.MarshalIndent(gotMap, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal got normalized JSON: %v", err)
 	}
+
 	wantJSON, err := json.MarshalIndent(wantMap, "", "  ")
 	if err != nil {
-		t.Fatalf("marshal golden normalized JSON: %v", err)
+		t.Fatalf("marshal want normalized JSON: %v", err)
 	}
 
 	if string(gotJSON) != string(wantJSON) {
-		t.Errorf("buildRunnerConfig output does not match golden.\ngot:\n%s\n\nwant:\n%s", gotJSON, wantJSON)
+		t.Errorf("BuildRunnerConfig output does not match golden.\ngot:\n%s\n\nwant:\n%s", gotJSON, wantJSON)
 	}
 }
