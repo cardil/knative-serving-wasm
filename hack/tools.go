@@ -19,16 +19,8 @@ limitations under the License.
 
 package tools
 
-// This package imports things required by this repository, to force `go mod` to see them as dependencies
+// This package imports things required by this repository, to force `go mod` to see them as dependencies.
+// Tool binaries (main packages) are declared via `tool` directives in go.mod instead.
 import (
-	_ "k8s.io/code-generator"
 	_ "knative.dev/hack"
-
-	_ "k8s.io/code-generator/cmd/client-gen"
-	_ "k8s.io/code-generator/cmd/deepcopy-gen"
-	_ "k8s.io/code-generator/cmd/defaulter-gen"
-	_ "k8s.io/code-generator/cmd/informer-gen"
-	_ "k8s.io/code-generator/cmd/lister-gen"
-	_ "k8s.io/kube-openapi/cmd/openapi-gen"
-	_ "knative.dev/pkg/codegen/cmd/injection-gen"
 )

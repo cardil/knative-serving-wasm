@@ -91,7 +91,7 @@ type WasmModuleSpec struct {
 // NetworkSpec specifies network access configuration for the WASM module.
 // Address patterns support both IP addresses and hostnames.
 // Format: "host:port" - host can be IP or hostname.
-// Wildcards: "*:port", "host:*", "*:*"
+// Wildcards: "*:port", "host:*", "*:*".
 type NetworkSpec struct {
 	// Inherit indicates whether to inherit the host's full network stack.
 	// When true, all network operations are allowed.
@@ -104,19 +104,19 @@ type NetworkSpec struct {
 	// Maps to WasiCtxBuilder::allow_ip_name_lookup().
 	// Defaults to true when Network is specified.
 	// +optional
-	AllowIpNameLookup *bool `json:"allowIpNameLookup,omitempty"`
+	AllowIPNameLookup *bool `json:"allowIpNameLookup,omitempty"`
 
-	// Tcp specifies TCP socket permissions.
+	// TCP specifies TCP socket permissions.
 	// +optional
-	Tcp *TcpSpec `json:"tcp,omitempty"`
+	TCP *TCPSpec `json:"tcp,omitempty"`
 
-	// Udp specifies UDP socket permissions.
+	// UDP specifies UDP socket permissions.
 	// +optional
-	Udp *UdpSpec `json:"udp,omitempty"`
+	UDP *UDPSpec `json:"udp,omitempty"`
 }
 
-// TcpSpec specifies TCP socket permissions.
-type TcpSpec struct {
+// TCPSpec specifies TCP socket permissions.
+type TCPSpec struct {
 	// Bind is a list of address patterns allowed for TCP bind.
 	// +optional
 	Bind []string `json:"bind,omitempty"`
@@ -126,8 +126,8 @@ type TcpSpec struct {
 	Connect []string `json:"connect,omitempty"`
 }
 
-// UdpSpec specifies UDP socket permissions.
-type UdpSpec struct {
+// UDPSpec specifies UDP socket permissions.
+type UDPSpec struct {
 	// Bind is a list of address patterns allowed for UDP bind.
 	// +optional
 	Bind []string `json:"bind,omitempty"`

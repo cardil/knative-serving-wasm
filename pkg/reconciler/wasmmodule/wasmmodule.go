@@ -19,6 +19,7 @@ package wasmmodule
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	api "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
@@ -38,13 +39,20 @@ import (
 
 var (
 	// DefaultRunnerImage is the default image for the WASM runner.
-	// Can be overridden at build time with -ldflags "-X pkg/reconciler/wasmmodule.DefaultRunnerImage=..."
+	// Can be overridden at build time with -ldflags "-X pkg/reconciler/wasmmodule.DefaultRunnerImage=...".
+	//nolint:gochecknoglobals // Build-time configuration
 	DefaultRunnerImage = "ghcr.io/cardil/knative-serving-wasm/runner"
 
 	// DefaultImagePullPolicy is the default image pull policy for the WASM runner.
 	// Can be overridden at build time with -ldflags "-X pkg/reconciler/wasmmodule.DefaultImagePullPolicy=Always"
-	// Empty string means use Kubernetes default (IfNotPresent)
+	// Empty string means use Kubernetes default (IfNotPresent).
+	//nolint:gochecknoglobals // Build-time configuration
 	DefaultImagePullPolicy = ""
+
+	// ErrValueFromNotSupported is returned when an env var uses valueFrom.
+	ErrValueFromNotSupported = errors.New("valueFrom is not yet supported")
+	// ErrUndefinedVolume is returned when a volume mount references a volume that is not defined.
+	ErrUndefinedVolume = errors.New("undefined volume reference")
 )
 
 // Reconciler implements apireconciler.Interface for
@@ -179,7 +187,6 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 			},
 		},
 	}, metav1.CreateOptions{})
-
 	if err != nil {
 		log.Errorf("Error creating kservice %s: %v", serviceName, err)
 	}
@@ -205,12 +212,12 @@ type RunnerDirConfig struct {
 // RunnerNetworkConfig represents network configuration for the runner.
 type RunnerNetworkConfig struct {
 	Inherit           bool     `json:"inherit,omitempty"`
-	AllowIpNameLookup bool     `json:"allowIpNameLookup,omitempty"`
-	TcpBind           []string `json:"tcpBind,omitempty"`
-	TcpConnect        []string `json:"tcpConnect,omitempty"`
-	UdpBind           []string `json:"udpBind,omitempty"`
-	UdpConnect        []string `json:"udpConnect,omitempty"`
-	UdpOutgoing       []string `json:"udpOutgoing,omitempty"`
+	AllowIPNameLookup bool     `json:"allowIpNameLookup,omitempty"`
+	TCPBind           []string `json:"tcpBind,omitempty"`
+	TCPConnect        []string `json:"tcpConnect,omitempty"`
+	UDPBind           []string `json:"udpBind,omitempty"`
+	UDPConnect        []string `json:"udpConnect,omitempty"`
+	UDPOutgoing       []string `json:"udpOutgoing,omitempty"`
 }
 
 // buildRunnerConfig builds the WASI configuration JSON for the runner.
@@ -225,8 +232,9 @@ func buildRunnerConfig(wm *api.WasmModule) (string, error) {
 		for _, env := range wm.Spec.Env {
 			if env.ValueFrom != nil {
 				// ValueFrom is not supported in this implementation
-				return "", fmt.Errorf("env var %s uses valueFrom which is not yet supported", env.Name)
+				return "", fmt.Errorf("env var %s: %w", env.Name, ErrValueFromNotSupported)
 			}
+
 			config.Env[env.Name] = env.Value
 		}
 	}
@@ -245,7 +253,7 @@ func buildRunnerConfig(wm *api.WasmModule) (string, error) {
 
 		for _, vm := range wm.Spec.VolumeMounts {
 			if !validVolumes[vm.Name] {
-				return "", fmt.Errorf("volume mount %s references undefined volume %s", vm.MountPath, vm.Name)
+				return "", fmt.Errorf("volume mount %s references %s: %w", vm.MountPath, vm.Name, ErrUndefinedVolume)
 			}
 
 			// With Kubernetes subPath, the subdirectory content is mounted directly
@@ -260,29 +268,7 @@ func buildRunnerConfig(wm *api.WasmModule) (string, error) {
 
 	// Convert network configuration
 	if wm.Spec.Network != nil {
-		config.Network = &RunnerNetworkConfig{
-			Inherit: wm.Spec.Network.Inherit,
-		}
-
-		// Default allowIpNameLookup to true if not specified
-		if wm.Spec.Network.AllowIpNameLookup != nil {
-			config.Network.AllowIpNameLookup = *wm.Spec.Network.AllowIpNameLookup
-		} else {
-			config.Network.AllowIpNameLookup = true
-		}
-
-		// Convert TCP configuration
-		if wm.Spec.Network.Tcp != nil {
-			config.Network.TcpBind = wm.Spec.Network.Tcp.Bind
-			config.Network.TcpConnect = wm.Spec.Network.Tcp.Connect
-		}
-
-		// Convert UDP configuration
-		if wm.Spec.Network.Udp != nil {
-			config.Network.UdpBind = wm.Spec.Network.Udp.Bind
-			config.Network.UdpConnect = wm.Spec.Network.Udp.Connect
-			config.Network.UdpOutgoing = wm.Spec.Network.Udp.Outgoing
-		}
+		config.Network = convertNetworkConfig(wm.Spec.Network)
 	}
 
 	// Serialize to JSON
@@ -292,4 +278,33 @@ func buildRunnerConfig(wm *api.WasmModule) (string, error) {
 	}
 
 	return string(configJSON), nil
+}
+
+// convertNetworkConfig converts the API NetworkSpec to the runner's RunnerNetworkConfig.
+func convertNetworkConfig(network *api.NetworkSpec) *RunnerNetworkConfig {
+	cfg := &RunnerNetworkConfig{
+		Inherit: network.Inherit,
+	}
+
+	// Default allowIpNameLookup to true if not specified
+	if network.AllowIPNameLookup != nil {
+		cfg.AllowIPNameLookup = *network.AllowIPNameLookup
+	} else {
+		cfg.AllowIPNameLookup = true
+	}
+
+	// Convert TCP configuration
+	if network.TCP != nil {
+		cfg.TCPBind = network.TCP.Bind
+		cfg.TCPConnect = network.TCP.Connect
+	}
+
+	// Convert UDP configuration
+	if network.UDP != nil {
+		cfg.UDPBind = network.UDP.Bind
+		cfg.UDPConnect = network.UDP.Connect
+		cfg.UDPOutgoing = network.UDP.Outgoing
+	}
+
+	return cfg
 }
