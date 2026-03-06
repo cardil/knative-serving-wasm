@@ -26,7 +26,6 @@ import (
 	executil "github.com/cardil/knative-serving-wasm/build/util/exec"
 	"github.com/cardil/knative-serving-wasm/build/util/tools"
 	"github.com/goyek/goyek/v2"
-	gocmd "github.com/goyek/x/cmd"
 	"go.yaml.in/yaml/v2"
 )
 
@@ -329,20 +328,34 @@ func buildControllerLocal(a *goyek.A, repo, runnerImage, version string) string 
 	ko := tools.Ghet(a, "ko")
 	tmpYAML := path.Join(releaseOutputDir, "serving-wasm-raw.yaml")
 
-	// Run ko resolve --push=false --oci-layout-path, redirect output to file
-	executil.ExecOrDie(a, spaceJoin(
-		ko, "resolve",
+	// Run ko resolve --push=false --oci-layout-path, capture stdout into file.
+	// We use os/exec directly so we can redirect stdout to the file while still
+	// streaming stderr (ko logs) to the task output.
+	//nolint:gosec
+	koCmd := exec.Command(ko, "resolve", //nolint:govet
 		"-B",
 		"--push=false",
 		"--oci-layout-path", ociControllerDir,
 		"--platform", "linux/amd64,linux/arm64",
 		"--tags", "v"+version+",latest",
 		"-f", "config/",
-		">", tmpYAML,
-	),
-		gocmd.Env("KO_DOCKER_REPO", repo),
-		gocmd.Env("KO_CONFIG_PATH", releaseOutputDir),
 	)
+	koCmd.Env = append(os.Environ(),
+		"KO_DOCKER_REPO="+repo,
+		"KO_CONFIG_PATH="+releaseOutputDir,
+	)
+	koCmd.Stderr = os.Stderr // stream ko logs to terminal
+
+	outFile, err := os.Create(tmpYAML)
+	if err != nil {
+		a.Fatalf("Failed to create raw YAML file: %v", err)
+	}
+	koCmd.Stdout = outFile
+	if err := koCmd.Run(); err != nil {
+		_ = outFile.Close()
+		a.Fatalf("ko resolve failed: %v", err)
+	}
+	_ = outFile.Close()
 
 	content, err := os.ReadFile(tmpYAML)
 	if err != nil {
