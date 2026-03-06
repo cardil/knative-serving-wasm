@@ -20,7 +20,7 @@ RUN mkdir /code
 WORKDIR /code
 
 # Pre-fetch dependencies for layer caching: copy manifests only,
-# fetch all crates, build a dummy binary to cache compiled deps,
+# fetch all crates, build a placeholder binary to cache compiled deps,
 # then copy real source.
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs && cargo fetch --locked && rm -rf src

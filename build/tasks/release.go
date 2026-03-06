@@ -94,11 +94,6 @@ func ReleaseBuild() goyek.Task {
 			}
 			a.Log("Version saved to: ", versionFile)
 
-			// Branch/tag management — skip if TAG env already set (Prow manages it)
-			if os.Getenv("TAG") == "" {
-				manageBranchAndTag(a, version)
-			}
-
 			runnerImage := path.Join(repo, "runner") + ":v" + version
 
 			// Build multi-arch runner image locally (no push)
@@ -342,7 +337,7 @@ func buildControllerLocal(a *goyek.A, repo, runnerImage, version string) string 
 	)
 	koCmd.Env = append(os.Environ(),
 		"KO_DOCKER_REPO="+repo,
-		"KO_CONFIG_PATH="+releaseOutputDir,
+		"KO_CONFIG_PATH="+koConfigPath,
 	)
 	koCmd.Stderr = os.Stderr // stream ko logs to terminal
 
@@ -415,14 +410,14 @@ func pushControllerImage(a *goyek.A, controllerRef, version string) {
 
 	a.Log("Pushing controller image: ", versionedRef)
 	executil.ExecOrDie(a, spaceJoin(
-		"skopeo", "copy",
+		"skopeo", "copy", "--all",
 		"oci:"+ociControllerDir,
 		"docker://"+versionedRef,
 	))
 
 	a.Log("Pushing controller image: ", latestRef)
 	executil.ExecOrDie(a, spaceJoin(
-		"skopeo", "copy",
+		"skopeo", "copy", "--all",
 		"oci:"+ociControllerDir,
 		"docker://"+latestRef,
 	))
