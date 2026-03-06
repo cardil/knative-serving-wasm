@@ -1,5 +1,11 @@
 FROM --platform=$BUILDPLATFORM docker.io/library/rust:1 AS builder
 
+ARG BUILDPLATFORM
+# The amd64 target is built natively; arm64 is cross-compiled. Both require
+# an amd64 build host. Fail early on non-amd64 builders.
+RUN [ "${BUILDPLATFORM}" = "linux/amd64" ] || \
+    { echo "ERROR: builder must be linux/amd64, got ${BUILDPLATFORM}"; exit 1; }
+
 # Enable arm64 packages for cross-compilation sysroot
 RUN dpkg --add-architecture arm64
 

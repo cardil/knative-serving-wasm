@@ -145,14 +145,8 @@ func ReleasePerform() goyek.Task {
 			runnerImage := path.Join(repo, "runner")
 			versionedRunner := runnerImage + ":v" + version
 
-			// Push runner image from local buildah storage
-			pushRunnerImageMultiArch(a, versionedRunner, runnerImage+":latest")
-
-			// Push controller image from OCI layout via skopeo
-			controllerImage := path.Join(repo, "controller")
-			pushControllerImage(a, controllerImage, version)
-
-			// Read artifact list
+			// Validate artifact list before any remote mutations.
+			// This fails fast if release:build was not run first.
 			artifactBytes, err := os.ReadFile(artifactListFile)
 			if err != nil {
 				a.Fatalf("Failed to read artifact list (run release:build first): %v", err)
@@ -163,6 +157,13 @@ func ReleasePerform() goyek.Task {
 					artifacts = append(artifacts, line)
 				}
 			}
+
+			// Push runner image from local buildah storage
+			pushRunnerImageMultiArch(a, versionedRunner, runnerImage+":latest")
+
+			// Push controller image from OCI layout via skopeo
+			controllerImage := path.Join(repo, "controller")
+			pushControllerImage(a, controllerImage, version)
 
 			// Derive release branch from version (e.g. 0.1.2 -> release-0.1)
 			tag := "v" + version
@@ -194,19 +195,29 @@ func ReleasePerform() goyek.Task {
 func detectReleaseVersion(a *goyek.A) string {
 	a.Helper()
 
+	normalize := func(v string) string {
+		v = strings.TrimPrefix(v, "v")
+		parts := strings.SplitN(v, ".", 3)
+		if len(parts) < 2 {
+			a.Fatalf("Invalid release version %q: expected vX.Y or vX.Y.Z", v)
+		}
+		return v
+	}
+
 	// 1. RELEASE_VERSION env var (e.g. set by hack/release.sh from Prow TAG)
 	if v := os.Getenv("RELEASE_VERSION"); v != "" {
-		return strings.TrimPrefix(v, "v")
+		return normalize(v)
 	}
 
-	// 2. Git tag on HEAD matching v*
-	if v := gitTagOnHead(); v != "" {
-		return strings.TrimPrefix(v, "v")
-	}
-
-	// 3. GITHUB_REF_NAME (GH Actions tag push, e.g. "v0.1.0")
+	// 2. GITHUB_REF_NAME (GH Actions tag push, e.g. "v0.1.0") — prefer the
+	//    exact tag that triggered the workflow over a local git lookup.
 	if v := os.Getenv("GITHUB_REF_NAME"); strings.HasPrefix(v, "v") {
-		return strings.TrimPrefix(v, "v")
+		return normalize(v)
+	}
+
+	// 3. Git tag on HEAD matching v* (local / non-GH-Actions invocations)
+	if v := gitTagOnHead(); v != "" {
+		return normalize(v)
 	}
 
 	a.Fatal("Cannot determine release version: set RELEASE_VERSION env var, " +
