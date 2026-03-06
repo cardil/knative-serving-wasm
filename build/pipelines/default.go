@@ -14,6 +14,7 @@ func Default() *goyek.Flow {
 	tasks.Deploy(f)
 	tasks.Update(f)
 	tasks.Test(f)
+	tasks.Release(f)
 	f.SetDefault(f.Define(tasks.Build()))
 	return f
 }

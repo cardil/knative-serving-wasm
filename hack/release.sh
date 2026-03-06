@@ -18,30 +18,17 @@
 # shellcheck disable=SC1090
 source "$(go run knative.dev/hack/cmd/script release.sh)"
 
-declare -A COMPONENTS
-COMPONENTS=(
-  ["sample.yaml"]="config"
-)
-readonly COMPONENTS
-
 function build_release() {
-   # Update release labels if this is a tagged release
-  if [[ -n "${TAG}" ]]; then
-    echo "Tagged release, updating release labels to wasm.serving.knative.dev/release: \"${TAG}\""
-    LABEL_YAML_CMD=(sed -e "s|wasm.serving.knative.dev/release: devel|wasm.serving.knative.dev/release: \"${TAG}\"|")
-  else
-    echo "Untagged release, will NOT update release labels"
-    LABEL_YAML_CMD=(cat)
-  fi
+  # Delegate to goyek release:build which handles:
+  #   - runner multi-arch image (buildah, local only)
+  #   - controller image (ko resolve --push=false, OCI layout)
+  #   - YAML generation and checksums
+  # TAG and KO_DOCKER_REPO are already set by the Knative release framework.
+  # RELEASE_VERSION is derived from TAG (strip the "v" prefix).
+  RELEASE_VERSION="${TAG#v}" ./goyek --no-deps release-build
 
-  local all_yamls=()
-  for yaml in "${!COMPONENTS[@]}"; do
-    local config="${COMPONENTS[${yaml}]}"
-    echo "Building Knative Sample Controller - ${config}"
-    ko resolve ${KO_FLAGS} -f ${config}/ | "${LABEL_YAML_CMD[@]}" > ${yaml}
-    all_yamls+=(${yaml})
-  done
-  ARTIFACTS_TO_PUBLISH="${all_yamls[@]}"
+  # Read the artifact list produced by release:build
+  ARTIFACTS_TO_PUBLISH="$(tr '\n' ' ' < build/output/release/artifacts-to-publish.list)"
 }
 
 main "$@"
