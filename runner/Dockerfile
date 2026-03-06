@@ -36,7 +36,7 @@ RUN mkdir src && echo 'fn main() {}' > src/main.rs && \
         cargo build --release --target aarch64-unknown-linux-gnu 2>/dev/null; true \
         ;; \
     esac && \
-    rm -rf src target
+    rm -rf src target/release/runner target/aarch64-unknown-linux-gnu/release/runner
 
 COPY . .
 
