@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	api "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 	apireconciler "github.com/cardil/knative-serving-wasm/pkg/client/injection/reconciler/wasm/v1alpha1/wasmmodule"
@@ -29,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
+	"knative.dev/pkg/controller"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/reconciler"
 	"knative.dev/pkg/tracker"
@@ -67,6 +69,9 @@ type Reconciler struct {
 
 	// Client is used to create the service
 	Client servingv1client.ServingV1Interface
+
+	// RunnerConfigStore holds the runner configuration from config-runner ConfigMap.
+	RunnerConfigStore *RunnerConfigStore
 }
 
 // Check that our Reconciler implements Interface.
@@ -151,6 +156,28 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 		},
 	}
 
+	// Inject INSECURE_REGISTRIES env var if configured
+	if r.RunnerConfigStore != nil {
+		runnerCfg := r.RunnerConfigStore.GetRunnerConfig()
+		if len(runnerCfg.InsecureRegistries) > 0 {
+			envVars = append(envVars, corev1.EnvVar{
+				Name:  "INSECURE_REGISTRIES",
+				Value: strings.Join(runnerCfg.InsecureRegistries, ","),
+			})
+
+			// Emit K8s Warning event if the module's image matches an insecure registry
+			if MatchesInsecureRegistry(module.Spec.Image, runnerCfg.InsecureRegistries) {
+				controller.GetEventRecorder(ctx).Eventf(
+					module,
+					corev1.EventTypeWarning,
+					"InsecureRegistry",
+					"Image %q will be fetched over plain HTTP (matched insecure registry)",
+					module.Spec.Image,
+				)
+			}
+		}
+	}
+
 	// Build container spec
 	container := corev1.Container{
 		Image:        DefaultRunnerImage,
@@ -192,6 +219,41 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 	}
 
 	return srv, err
+}
+
+// MatchesInsecureRegistry reports whether the OCI image reference's registry
+// host matches any entry in the insecure registries list.
+func MatchesInsecureRegistry(image string, insecureRegistries []string) bool {
+	// Strip oci:// prefix if present
+	image = strings.TrimPrefix(image, "oci://")
+
+	// Extract registry host from image reference.
+	// OCI image references have the form: [host[:port]/]path[:tag][@digest]
+	// The registry host is the part before the first slash, if it contains a dot or colon.
+	var registryHost string
+
+	slash := strings.Index(image, "/")
+	if slash < 0 {
+		// No slash: image is something like "ubuntu:latest" — uses docker.io
+		return false
+	}
+
+	firstPart := image[:slash]
+	// If the first part contains a dot or colon, it's a registry host
+	if strings.ContainsAny(firstPart, ".:") {
+		registryHost = firstPart
+	} else {
+		// No explicit registry host (e.g., "library/ubuntu") — uses docker.io
+		return false
+	}
+
+	for _, reg := range insecureRegistries {
+		if strings.EqualFold(reg, registryHost) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // RunnerWasiConfig represents the WASI configuration passed to the runner.
