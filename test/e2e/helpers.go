@@ -135,6 +135,88 @@ func (tc *TestContext) WaitForWasmModuleReady(
 	)
 }
 
+// SetProgressDeadline patches the Knative config-deployment configmap to use the
+// given progress-deadline (e.g. "30s") so that revision failures are detected faster.
+// Returns the previous value so callers can restore it.
+func (tc *TestContext) SetProgressDeadline(ctx context.Context, duration string) (string, error) {
+	cm, err := tc.KubeClient.CoreV1().ConfigMaps("knative-serving").Get(
+		ctx, "config-deployment", metav1.GetOptions{},
+	)
+	if err != nil {
+		return "", fmt.Errorf("get config-deployment: %w", err)
+	}
+
+	prev := cm.Data["progress-deadline"]
+
+	cm = cm.DeepCopy()
+	if cm.Data == nil {
+		cm.Data = map[string]string{}
+	}
+
+	cm.Data["progress-deadline"] = duration
+
+	_, err = tc.KubeClient.CoreV1().ConfigMaps("knative-serving").Update(
+		ctx, cm, metav1.UpdateOptions{},
+	)
+	if err != nil {
+		return "", fmt.Errorf("update config-deployment: %w", err)
+	}
+
+	tc.T.Logf("Set Knative progress-deadline to %s (was %q)", duration, prev)
+
+	return prev, nil
+}
+
+// WaitForWasmModuleTerminalFailure waits until the WasmModule has Ready=False
+// with a reason other than "ServiceUnavailable" (which is transient).
+// Use this to verify terminal failure propagation from the underlying ksvc.
+func (tc *TestContext) WaitForWasmModuleTerminalFailure(
+	ctx context.Context, name string,
+) (string, error) {
+	tc.T.Logf("Waiting for WasmModule %s to reach terminal failure...", name)
+
+	var gotReason string
+
+	pollFn := func(ctx context.Context) (bool, error) {
+		wm, err := tc.WasmClient.WasmV1alpha1().WasmModules(
+			tc.Namespace,
+		).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		for _, cond := range wm.Status.Conditions {
+			if cond.Type != "Ready" {
+				continue
+			}
+
+			if cond.Status == "False" {
+				tc.T.Logf("WasmModule %s: Ready=False, Reason=%s, Message=%s",
+					name, cond.Reason, cond.Message)
+
+				// Skip empty reason or ServiceUnavailable (both are transient states —
+				// the controller hasn't set a terminal reason yet).
+				if cond.Reason == "" || cond.Reason == "ServiceUnavailable" {
+					return false, nil
+				}
+
+				// Any other non-empty False reason is a terminal failure from the ksvc
+				gotReason = cond.Reason
+
+				return true, nil
+			}
+		}
+
+		return false, nil
+	}
+
+	err := wait.PollUntilContextTimeout(
+		ctx, DefaultPollInterval, DefaultTimeout, true, pollFn,
+	)
+
+	return gotReason, err
+}
+
 // GetWasmModuleURL returns the URL for accessing a WasmModule.
 func (tc *TestContext) GetWasmModuleURL(
 	ctx context.Context, name string,

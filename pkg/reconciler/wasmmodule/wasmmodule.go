@@ -126,7 +126,14 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) 
 			}
 		}
 	} else {
-		module.Status.MarkServiceUnavailable(serviceName)
+		// Check for a terminal Configuration failure (e.g. RevisionFailed, ContainerMissing)
+		// so that clients can distinguish transient "not ready yet" from permanent failures.
+		cfgCond := srv.Status.GetCondition(servingv1.ConfigurationConditionReady)
+		if cfgCond != nil && cfgCond.IsFalse() {
+			module.Status.MarkServiceFailed(cfgCond.Reason, cfgCond.Message)
+		} else {
+			module.Status.MarkServiceUnavailable(serviceName)
+		}
 	}
 
 	return nil

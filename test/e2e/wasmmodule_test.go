@@ -17,12 +17,15 @@
 package e2e
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"knative.dev/pkg/apis"
 
 	wasmv1alpha1 "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 )
@@ -88,6 +91,131 @@ func TestBasicDeployment(t *testing.T) {
 	}
 
 	t.Logf("Successfully verified reverse-text response: %s", response)
+}
+
+// TestTerminalFailurePropagation verifies that when the underlying Knative Service
+// fails permanently (e.g. RevisionFailed due to a bad image), the WasmModule status
+// reflects a terminal failure reason instead of the generic ServiceUnavailable.
+// This ensures clients (e.g. func deploy) can distinguish transient from permanent failures.
+func TestTerminalFailurePropagation(t *testing.T) {
+	ctx := t.Context()
+	namespace := fmt.Sprintf("e2e-terminal-%d", time.Now().Unix())
+
+	tc, err := newTestContext(ctx, t, namespace)
+	if err != nil {
+		t.Fatalf("Failed to create test context: %v", err)
+	}
+	defer tc.Cleanup()
+
+	if err := tc.CreateNamespace(ctx); err != nil {
+		t.Fatalf("Failed to create namespace: %v", err)
+	}
+
+	// Run the body with a short progress-deadline so failures are detected in seconds.
+	if err := withProgressDeadline(ctx, tc, "5s", func() error {
+		return runTerminalFailureTest(ctx, tc, namespace)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// withProgressDeadline sets the Knative progress-deadline to the given value,
+// calls fn, and restores the original value regardless of fn's outcome (including panics).
+// The restore context is created inside the deferred closure so its 30s timeout
+// starts only when cleanup begins, not before fn runs.
+func withProgressDeadline(ctx context.Context, tc *TestContext, deadline string, fn func() error) (retErr error) {
+	prev, err := tc.SetProgressDeadline(ctx, deadline)
+	if err != nil {
+		return fmt.Errorf("set progress deadline: %w", err)
+	}
+
+	if prev == "" {
+		prev = "600s"
+	}
+
+	defer func() {
+		// Create the restore context only when cleanup begins so its 30s
+		// timeout does not tick while fn() is running.
+		restoreCtx, restoreCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer restoreCancel()
+
+		_, restoreErr := tc.SetProgressDeadline(restoreCtx, prev)
+		retErr = errors.Join(retErr, restoreErr)
+	}()
+
+	return fn()
+}
+
+// runTerminalFailureTest creates a WasmModule with a bad image and asserts
+// that the controller propagates a terminal failure reason (not ServiceUnavailable).
+func runTerminalFailureTest(ctx context.Context, tc *TestContext, namespace string) error {
+	// Use a deliberately invalid runner image to trigger a terminal revision failure.
+	// The runner is the container image (not the WASM image), so using a non-existent
+	// runner image causes Knative to set ConfigurationsReady=False/RevisionFailed.
+	wasmModule := &wasmv1alpha1.WasmModule{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bad-image",
+			Namespace: namespace,
+		},
+		Spec: wasmv1alpha1.WasmModuleSpec{
+			Image: "example.com/this-image-does-not-exist:latest",
+		},
+	}
+
+	if _, err := tc.CreateWasmModule(ctx, wasmModule); err != nil {
+		return fmt.Errorf("create WasmModule: %w", err)
+	}
+
+	// Wait for WasmModule to reach a terminal failure (any reason other than ServiceUnavailable).
+	// Knative sets ConfigurationsReady=False with reason=RevisionFailed or ProgressDeadlineExceeded
+	// once it determines no revision can become ready.
+	gotReason, err := tc.WaitForWasmModuleTerminalFailure(ctx, "bad-image")
+	if err != nil {
+		return fmt.Errorf("WasmModule did not reach terminal failure within timeout: %w", err)
+	}
+
+	return checkTerminalCondition(ctx, tc, namespace, gotReason)
+}
+
+// checkTerminalCondition fetches the WasmModule and verifies its Ready condition
+// is a terminal failure (reason ≠ ServiceUnavailable).
+func checkTerminalCondition(ctx context.Context, tc *TestContext, namespace, gotReason string) error {
+	wm, err := tc.WasmClient.WasmV1alpha1().WasmModules(
+		namespace,
+	).Get(ctx, "bad-image", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get WasmModule: %w", err)
+	}
+
+	cond := wm.Status.GetCondition(apis.ConditionReady)
+	if cond == nil {
+		return errors.New("WasmModule has no Ready condition")
+	}
+
+	if cond.Status != "False" {
+		return fmt.Errorf("Ready condition status=%s, want False", cond.Status)
+	}
+
+	if cond.Reason == "" {
+		return errors.New("Ready condition reason is empty; want a terminal reason")
+	}
+
+	if cond.Reason == "ServiceUnavailable" {
+		return fmt.Errorf(
+			"Ready condition reason is ServiceUnavailable (transient);"+
+				" want a terminal reason (e.g. RevisionFailed, ProgressDeadlineExceeded),"+
+				" gotReason=%s", gotReason,
+		)
+	}
+
+	if gotReason != "" && cond.Reason != gotReason {
+		return fmt.Errorf(
+			"Ready condition reason changed after terminal detection: got=%s want=%s",
+			cond.Reason, gotReason,
+		)
+	}
+
+	return nil
 }
 
 // reverseString reverses a string.

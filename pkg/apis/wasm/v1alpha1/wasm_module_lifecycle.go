@@ -45,6 +45,17 @@ func (ass *WasmModuleStatus) MarkServiceUnavailable(name string) {
 		"Service %q wasn't found.", name)
 }
 
+// MarkServiceFailed marks the WasmModule as permanently failed, propagating
+// the terminal failure reason and message from the underlying Knative Service.
+// Use this when the ksvc has a terminal failure (e.g. RevisionFailed,
+// ContainerMissing) so clients can distinguish transient from terminal errors.
+func (ass *WasmModuleStatus) MarkServiceFailed(reason, message string) {
+	condSet.Manage(ass).MarkFalse(
+		WasmModuleConditionReady,
+		reason,
+		"%s", message)
+}
+
 func (ass *WasmModuleStatus) MarkServiceAvailable() {
 	condSet.Manage(ass).MarkTrue(WasmModuleConditionReady)
 }
