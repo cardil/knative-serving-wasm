@@ -120,29 +120,30 @@ func TestTerminalFailurePropagation(t *testing.T) {
 }
 
 // withProgressDeadline sets the Knative progress-deadline to the given value,
-// calls fn, and restores the original value regardless of fn's outcome.
-// A non-cancellable context with its own timeout is created after fn returns
-// so the 30s restore window starts only when cleanup begins (not before fn runs).
-func withProgressDeadline(ctx context.Context, tc *TestContext, deadline string, fn func() error) error {
+// calls fn, and restores the original value regardless of fn's outcome (including panics).
+// The restore context is created inside the deferred closure so its 30s timeout
+// starts only when cleanup begins, not before fn runs.
+func withProgressDeadline(ctx context.Context, tc *TestContext, deadline string, fn func() error) (retErr error) {
 	prev, err := tc.SetProgressDeadline(ctx, deadline)
 	if err != nil {
 		return fmt.Errorf("set progress deadline: %w", err)
 	}
 
-	fnErr := fn()
-
 	if prev == "" {
 		prev = "600s"
 	}
 
-	// Create the restore context only after fn() finishes so its 30s timeout
-	// does not start ticking while fn() is still running.
-	restoreCtx, restoreCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer restoreCancel()
+	defer func() {
+		// Create the restore context only when cleanup begins so its 30s
+		// timeout does not tick while fn() is running.
+		restoreCtx, restoreCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer restoreCancel()
 
-	_, restoreErr := tc.SetProgressDeadline(restoreCtx, prev)
+		_, restoreErr := tc.SetProgressDeadline(restoreCtx, prev)
+		retErr = errors.Join(retErr, restoreErr)
+	}()
 
-	return errors.Join(fnErr, restoreErr)
+	return fn()
 }
 
 // runTerminalFailureTest creates a WasmModule with a bad image and asserts
@@ -191,11 +192,26 @@ func checkTerminalCondition(ctx context.Context, tc *TestContext, namespace, got
 		return errors.New("WasmModule has no Ready condition")
 	}
 
+	if cond.Status != "False" {
+		return fmt.Errorf("Ready condition status=%s, want False", cond.Status)
+	}
+
+	if cond.Reason == "" {
+		return errors.New("Ready condition reason is empty; want a terminal reason")
+	}
+
 	if cond.Reason == "ServiceUnavailable" {
 		return fmt.Errorf(
 			"Ready condition reason is ServiceUnavailable (transient);"+
 				" want a terminal reason (e.g. RevisionFailed, ProgressDeadlineExceeded),"+
 				" gotReason=%s", gotReason,
+		)
+	}
+
+	if gotReason != "" && cond.Reason != gotReason {
+		return fmt.Errorf(
+			"Ready condition reason changed after terminal detection: got=%s want=%s",
+			cond.Reason, gotReason,
 		)
 	}
 
