@@ -18,6 +18,7 @@ package wasmmodule_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	api "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
@@ -36,11 +37,11 @@ import (
 // fakeTracker is a no-op tracker for unit tests.
 type fakeTracker struct{}
 
-func (fakeTracker) Track(ref corev1.ObjectReference, obj interface{}) error     { return nil }
-func (fakeTracker) TrackReference(ref tracker.Reference, obj interface{}) error { return nil }
-func (fakeTracker) OnChanged(obj interface{})                                   {}
-func (fakeTracker) GetObservers(obj interface{}) []types.NamespacedName         { return nil }
-func (fakeTracker) OnDeletedObserver(obj interface{})                           {}
+func (fakeTracker) Track(_ corev1.ObjectReference, _ interface{}) error     { return nil }
+func (fakeTracker) TrackReference(_ tracker.Reference, _ interface{}) error { return nil }
+func (fakeTracker) OnChanged(_ interface{})                                 {}
+func (fakeTracker) GetObservers(_ interface{}) []types.NamespacedName       { return nil }
+func (fakeTracker) OnDeletedObserver(_ interface{})                         {}
 
 // buildServiceLister creates a ServiceLister seeded with the given services.
 func buildServiceLister(svcs ...*servingv1.Service) servingv1listers.ServiceLister {
@@ -103,6 +104,37 @@ func ksvcWithReadyUnknown(namespace, name string) *servingv1.Service {
 	}
 }
 
+// assertCondition runs ReconcileKind and validates the Ready condition.
+func assertCondition(
+	t *testing.T,
+	r *wasmmodule.Reconciler,
+	module *api.WasmModule,
+	wantReason, wantMessage string,
+) {
+	t.Helper()
+
+	if err := r.ReconcileKind(context.Background(), module); err != nil {
+		t.Fatalf("ReconcileKind() error: %v", err)
+	}
+
+	cond := module.Status.GetCondition(apis.ConditionReady)
+	if cond == nil {
+		t.Fatal("expected Ready condition, got nil")
+	}
+
+	if !cond.IsFalse() {
+		t.Errorf("expected condition to be False, got %v", cond.Status)
+	}
+
+	if cond.Reason != wantReason {
+		t.Errorf("reason: got %q, want %q", cond.Reason, wantReason)
+	}
+
+	if cond.Message != wantMessage {
+		t.Errorf("message: got %q, want %q", cond.Message, wantMessage)
+	}
+}
+
 func TestReconcileKind_TerminalConfigFailure(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +166,7 @@ func TestReconcileKind_TerminalConfigFailure(t *testing.T) {
 			t.Parallel()
 
 			const ns = "default"
+
 			const moduleName = "my-wasm"
 
 			svc := ksvcWithConfigFailed(ns, moduleName, tt.svcReason, tt.svcMessage)
@@ -154,26 +187,7 @@ func TestReconcileKind_TerminalConfigFailure(t *testing.T) {
 			}
 			module.Status.InitializeConditions()
 
-			if err := r.ReconcileKind(context.Background(), module); err != nil {
-				t.Fatalf("ReconcileKind() error: %v", err)
-			}
-
-			cond := module.Status.GetCondition(apis.ConditionReady)
-			if cond == nil {
-				t.Fatal("expected Ready condition, got nil")
-			}
-
-			if !cond.IsFalse() {
-				t.Errorf("expected condition to be False, got %v", cond.Status)
-			}
-
-			if cond.Reason != tt.wantReason {
-				t.Errorf("reason: got %q, want %q", cond.Reason, tt.wantReason)
-			}
-
-			if cond.Message != tt.wantMessage {
-				t.Errorf("message: got %q, want %q", cond.Message, tt.wantMessage)
-			}
+			assertCondition(t, r, module, tt.wantReason, tt.wantMessage)
 		})
 	}
 }
@@ -182,6 +196,7 @@ func TestReconcileKind_TransientNotReady(t *testing.T) {
 	t.Parallel()
 
 	const ns = "default"
+
 	const moduleName = "my-wasm"
 
 	svc := ksvcWithReadyUnknown(ns, moduleName)
@@ -202,21 +217,8 @@ func TestReconcileKind_TransientNotReady(t *testing.T) {
 	}
 	module.Status.InitializeConditions()
 
-	if err := r.ReconcileKind(context.Background(), module); err != nil {
-		t.Fatalf("ReconcileKind() error: %v", err)
-	}
-
-	cond := module.Status.GetCondition(apis.ConditionReady)
-	if cond == nil {
-		t.Fatal("expected Ready condition, got nil")
-	}
-
-	if !cond.IsFalse() {
-		t.Errorf("expected condition to be False, got %v", cond.Status)
-	}
-
-	// Transient: should be ServiceUnavailable, NOT RevisionFailed
-	if cond.Reason != "ServiceUnavailable" {
-		t.Errorf("reason: got %q, want %q", cond.Reason, "ServiceUnavailable")
-	}
+	// Transient: should be ServiceUnavailable, NOT RevisionFailed.
+	// MarkServiceUnavailable formats the message as: Service %q wasn't found.
+	wantMsg := fmt.Sprintf("Service %q wasn't found.", moduleName)
+	assertCondition(t, r, module, "ServiceUnavailable", wantMsg)
 }

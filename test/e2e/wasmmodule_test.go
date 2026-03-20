@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -110,23 +111,36 @@ func TestTerminalFailurePropagation(t *testing.T) {
 		t.Fatalf("Failed to create namespace: %v", err)
 	}
 
-	// Speed up Knative's progress deadline so failures are detected quickly.
-	// Restore the original value after the test.
-	prev, err := tc.SetProgressDeadline(ctx, "5s")
+	// Run the body with a short progress-deadline so failures are detected in seconds.
+	if err := withProgressDeadline(ctx, tc, "5s", func() error {
+		return runTerminalFailureTest(ctx, tc, namespace)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// withProgressDeadline sets the Knative progress-deadline to the given value,
+// calls fn, and restores the original value regardless of fn's outcome.
+func withProgressDeadline(ctx context.Context, tc *TestContext, deadline string, fn func() error) error {
+	prev, err := tc.SetProgressDeadline(ctx, deadline)
 	if err != nil {
-		t.Fatalf("Failed to set progress deadline: %v", err)
+		return fmt.Errorf("set progress deadline: %w", err)
 	}
 
-	defer func() {
-		if prev == "" {
-			prev = "600s"
-		}
+	fnErr := fn()
 
-		if _, restoreErr := tc.SetProgressDeadline(context.Background(), prev); restoreErr != nil {
-			t.Logf("Warning: failed to restore progress deadline: %v", restoreErr)
-		}
-	}()
+	if prev == "" {
+		prev = "600s"
+	}
 
+	_, restoreErr := tc.SetProgressDeadline(ctx, prev)
+
+	return errors.Join(fnErr, restoreErr)
+}
+
+// runTerminalFailureTest creates a WasmModule with a bad image and asserts
+// that the controller propagates a terminal failure reason (not ServiceUnavailable).
+func runTerminalFailureTest(ctx context.Context, tc *TestContext, namespace string) error {
 	// Use a deliberately invalid runner image to trigger a terminal revision failure.
 	// The runner is the container image (not the WASM image), so using a non-existent
 	// runner image causes Knative to set ConfigurationsReady=False/RevisionFailed.
@@ -140,8 +154,8 @@ func TestTerminalFailurePropagation(t *testing.T) {
 		},
 	}
 
-	if _, err = tc.CreateWasmModule(ctx, wasmModule); err != nil {
-		t.Fatalf("Failed to create WasmModule: %v", err)
+	if _, err := tc.CreateWasmModule(ctx, wasmModule); err != nil {
+		return fmt.Errorf("create WasmModule: %w", err)
 	}
 
 	// Wait for WasmModule to reach a terminal failure (any reason other than ServiceUnavailable).
@@ -149,28 +163,36 @@ func TestTerminalFailurePropagation(t *testing.T) {
 	// once it determines no revision can become ready.
 	gotReason, err := tc.WaitForWasmModuleTerminalFailure(ctx, "bad-image")
 	if err != nil {
-		t.Fatalf("WasmModule did not reach terminal failure within timeout: %v", err)
+		return fmt.Errorf("WasmModule did not reach terminal failure within timeout: %w", err)
 	}
 
-	// Verify the condition is set to terminal failure (not ServiceUnavailable)
+	return checkTerminalCondition(ctx, tc, namespace, gotReason)
+}
+
+// checkTerminalCondition fetches the WasmModule and verifies its Ready condition
+// is a terminal failure (reason ≠ ServiceUnavailable).
+func checkTerminalCondition(ctx context.Context, tc *TestContext, namespace, gotReason string) error {
 	wm, err := tc.WasmClient.WasmV1alpha1().WasmModules(
 		namespace,
 	).Get(ctx, "bad-image", metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("Failed to get WasmModule: %v", err)
+		return fmt.Errorf("get WasmModule: %w", err)
 	}
 
 	cond := wm.Status.GetCondition(apis.ConditionReady)
 	if cond == nil {
-		t.Fatal("WasmModule has no Ready condition")
+		return errors.New("WasmModule has no Ready condition")
 	}
 
 	if cond.Reason == "ServiceUnavailable" {
-		t.Errorf("Ready condition reason is ServiceUnavailable (transient); want a terminal reason (e.g. RevisionFailed, ProgressDeadlineExceeded)")
+		return fmt.Errorf(
+			"Ready condition reason is ServiceUnavailable (transient);"+
+				" want a terminal reason (e.g. RevisionFailed, ProgressDeadlineExceeded),"+
+				" gotReason=%s", gotReason,
+		)
 	}
 
-	t.Logf("Terminal failure correctly propagated: Ready=False, Reason=%s (gotReason=%s), Message=%s",
-		cond.Reason, gotReason, cond.Message)
+	return nil
 }
 
 // reverseString reverses a string.
