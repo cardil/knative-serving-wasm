@@ -194,12 +194,13 @@ func (tc *TestContext) WaitForWasmModuleTerminalFailure(
 				tc.T.Logf("WasmModule %s: Ready=False, Reason=%s, Message=%s",
 					name, cond.Reason, cond.Message)
 
-				// ServiceUnavailable is transient — keep waiting for ksvc to be reconciled
-				if cond.Reason == "ServiceUnavailable" {
+				// Skip empty reason or ServiceUnavailable (both are transient states —
+				// the controller hasn't set a terminal reason yet).
+				if cond.Reason == "" || cond.Reason == "ServiceUnavailable" {
 					return false, nil
 				}
 
-				// Any other False reason is a terminal failure from the ksvc
+				// Any other non-empty False reason is a terminal failure from the ksvc
 				gotReason = cond.Reason
 
 				return true, nil
