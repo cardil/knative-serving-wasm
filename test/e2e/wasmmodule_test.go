@@ -121,14 +121,9 @@ func TestTerminalFailurePropagation(t *testing.T) {
 
 // withProgressDeadline sets the Knative progress-deadline to the given value,
 // calls fn, and restores the original value regardless of fn's outcome.
-// A non-cancellable context with its own timeout is used for the restore step
-// so that cleanup succeeds even if the test context has already been cancelled.
+// A non-cancellable context with its own timeout is created after fn returns
+// so the 30s restore window starts only when cleanup begins (not before fn runs).
 func withProgressDeadline(ctx context.Context, tc *TestContext, deadline string, fn func() error) error {
-	// Capture a non-cancellable, deadline-bounded context for the restore step
-	// before running fn, so cleanup is independent of the test context's lifetime.
-	restoreCtx, restoreCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer restoreCancel()
-
 	prev, err := tc.SetProgressDeadline(ctx, deadline)
 	if err != nil {
 		return fmt.Errorf("set progress deadline: %w", err)
@@ -139,6 +134,11 @@ func withProgressDeadline(ctx context.Context, tc *TestContext, deadline string,
 	if prev == "" {
 		prev = "600s"
 	}
+
+	// Create the restore context only after fn() finishes so its 30s timeout
+	// does not start ticking while fn() is still running.
+	restoreCtx, restoreCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer restoreCancel()
 
 	_, restoreErr := tc.SetProgressDeadline(restoreCtx, prev)
 
