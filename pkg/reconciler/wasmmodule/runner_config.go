@@ -75,7 +75,7 @@ func NewRunnerConfigStore(logger configmap.Logger) *RunnerConfigStore {
 
 // GetRunnerConfig fetches the current RunnerConfig from the store.
 func (s *RunnerConfigStore) GetRunnerConfig() *RunnerConfig {
-	cfg, ok := s.UntypedStore.UntypedLoad(RunnerConfigName).(*RunnerConfig)
+	cfg, ok := s.UntypedLoad(RunnerConfigName).(*RunnerConfig)
 	if !ok || cfg == nil {
 		return &RunnerConfig{}
 	}

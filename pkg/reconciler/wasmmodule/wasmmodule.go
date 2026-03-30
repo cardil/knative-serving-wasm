@@ -139,6 +139,42 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) 
 	return nil
 }
 
+// buildEnvVars builds the env var list for the runner container, optionally
+// injecting INSECURE_REGISTRIES from the RunnerConfigStore and emitting a K8s
+// Warning event when the module image matches an insecure registry.
+func (r *Reconciler) buildEnvVars(ctx context.Context, module *api.WasmModule, wasiConfig string) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
+		{Name: "IMAGE", Value: module.Spec.Image},
+		{Name: "WASI_CONFIG", Value: wasiConfig},
+	}
+
+	if r.RunnerConfigStore == nil {
+		return envVars
+	}
+
+	runnerCfg := r.RunnerConfigStore.GetRunnerConfig()
+	if len(runnerCfg.InsecureRegistries) == 0 {
+		return envVars
+	}
+
+	envVars = append(envVars, corev1.EnvVar{
+		Name:  "INSECURE_REGISTRIES",
+		Value: strings.Join(runnerCfg.InsecureRegistries, ","),
+	})
+
+	if MatchesInsecureRegistry(module.Spec.Image, runnerCfg.InsecureRegistries) {
+		controller.GetEventRecorder(ctx).Eventf(
+			module,
+			corev1.EventTypeWarning,
+			"InsecureRegistry",
+			"Image %q will be fetched over plain HTTP (matched insecure registry)",
+			module.Spec.Image,
+		)
+	}
+
+	return envVars
+}
+
 func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) (*servingv1.Service, error) {
 	log := logging.FromContext(ctx)
 
@@ -151,44 +187,10 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 		return nil, fmt.Errorf("failed to build runner config: %w", err)
 	}
 
-	// Prepare environment variables
-	envVars := []corev1.EnvVar{
-		{
-			Name:  "IMAGE",
-			Value: module.Spec.Image,
-		},
-		{
-			Name:  "WASI_CONFIG",
-			Value: wasiConfig,
-		},
-	}
-
-	// Inject INSECURE_REGISTRIES env var if configured
-	if r.RunnerConfigStore != nil {
-		runnerCfg := r.RunnerConfigStore.GetRunnerConfig()
-		if len(runnerCfg.InsecureRegistries) > 0 {
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  "INSECURE_REGISTRIES",
-				Value: strings.Join(runnerCfg.InsecureRegistries, ","),
-			})
-
-			// Emit K8s Warning event if the module's image matches an insecure registry
-			if MatchesInsecureRegistry(module.Spec.Image, runnerCfg.InsecureRegistries) {
-				controller.GetEventRecorder(ctx).Eventf(
-					module,
-					corev1.EventTypeWarning,
-					"InsecureRegistry",
-					"Image %q will be fetched over plain HTTP (matched insecure registry)",
-					module.Spec.Image,
-				)
-			}
-		}
-	}
-
 	// Build container spec
 	container := corev1.Container{
 		Image:        DefaultRunnerImage,
-		Env:          envVars,
+		Env:          r.buildEnvVars(ctx, module, wasiConfig),
 		VolumeMounts: module.Spec.VolumeMounts,
 		Resources:    module.Spec.Resources,
 	}
