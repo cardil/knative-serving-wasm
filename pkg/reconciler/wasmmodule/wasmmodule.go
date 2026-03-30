@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	api "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 	apireconciler "github.com/cardil/knative-serving-wasm/pkg/client/injection/reconciler/wasm/v1alpha1/wasmmodule"
@@ -29,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
+	"knative.dev/pkg/controller"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/reconciler"
 	"knative.dev/pkg/tracker"
@@ -67,6 +69,9 @@ type Reconciler struct {
 
 	// Client is used to create the service
 	Client servingv1client.ServingV1Interface
+
+	// RunnerConfigStore holds the runner configuration from config-runner ConfigMap.
+	RunnerConfigStore *RunnerConfigStore
 }
 
 // Check that our Reconciler implements Interface.
@@ -134,6 +139,42 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) 
 	return nil
 }
 
+// buildEnvVars builds the env var list for the runner container, optionally
+// injecting INSECURE_REGISTRIES from the RunnerConfigStore and emitting a K8s
+// Warning event when the module image matches an insecure registry.
+func (r *Reconciler) buildEnvVars(ctx context.Context, module *api.WasmModule, wasiConfig string) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
+		{Name: "IMAGE", Value: module.Spec.Image},
+		{Name: "WASI_CONFIG", Value: wasiConfig},
+	}
+
+	if r.RunnerConfigStore == nil {
+		return envVars
+	}
+
+	runnerCfg := r.RunnerConfigStore.GetRunnerConfig()
+	if len(runnerCfg.InsecureRegistries) == 0 {
+		return envVars
+	}
+
+	envVars = append(envVars, corev1.EnvVar{
+		Name:  "INSECURE_REGISTRIES",
+		Value: strings.Join(runnerCfg.InsecureRegistries, ","),
+	})
+
+	if MatchesInsecureRegistry(module.Spec.Image, runnerCfg.InsecureRegistries) {
+		controller.GetEventRecorder(ctx).Eventf(
+			module,
+			corev1.EventTypeWarning,
+			"InsecureRegistry",
+			"Image %q will be fetched over plain HTTP (matched insecure registry)",
+			module.Spec.Image,
+		)
+	}
+
+	return envVars
+}
+
 func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) (*servingv1.Service, error) {
 	log := logging.FromContext(ctx)
 
@@ -146,22 +187,10 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 		return nil, fmt.Errorf("failed to build runner config: %w", err)
 	}
 
-	// Prepare environment variables
-	envVars := []corev1.EnvVar{
-		{
-			Name:  "IMAGE",
-			Value: module.Spec.Image,
-		},
-		{
-			Name:  "WASI_CONFIG",
-			Value: wasiConfig,
-		},
-	}
-
 	// Build container spec
 	container := corev1.Container{
 		Image:        DefaultRunnerImage,
-		Env:          envVars,
+		Env:          r.buildEnvVars(ctx, module, wasiConfig),
 		VolumeMounts: module.Spec.VolumeMounts,
 		Resources:    module.Spec.Resources,
 	}
@@ -199,6 +228,44 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 	}
 
 	return srv, err
+}
+
+// MatchesInsecureRegistry reports whether the OCI image reference's registry
+// host matches any entry in the insecure registries list.
+func MatchesInsecureRegistry(image string, insecureRegistries []string) bool {
+	// Strip oci:// prefix if present (case-insensitive)
+	if len(image) >= len("oci://") && strings.EqualFold(image[:len("oci://")], "oci://") {
+		image = image[len("oci://"):]
+	}
+
+	// Extract registry host from image reference.
+	// OCI image references have the form: [host[:port]/]path[:tag][@digest]
+	// The registry host is the part before the first slash, if it contains a dot or colon.
+	var registryHost string
+
+	slash := strings.Index(image, "/")
+	if slash < 0 {
+		// No slash: image is something like "ubuntu:latest" — uses docker.io
+		return false
+	}
+
+	firstPart := image[:slash]
+	// If the first part contains a dot or colon, or is "localhost", it's a registry host.
+	// "localhost" is a well-known exception that Docker/containerd also treat specially.
+	if strings.ContainsAny(firstPart, ".:") || strings.EqualFold(firstPart, "localhost") {
+		registryHost = firstPart
+	} else {
+		// No explicit registry host (e.g., "library/ubuntu") — uses docker.io
+		return false
+	}
+
+	for _, reg := range insecureRegistries {
+		if strings.EqualFold(reg, registryHost) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // RunnerWasiConfig represents the WASI configuration passed to the runner.

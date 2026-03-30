@@ -33,15 +33,19 @@ import (
 // NewController creates a Reconciler and returns the result of NewImpl.
 func NewController(
 	ctx context.Context,
-	_ configmap.Watcher,
+	cmw configmap.Watcher,
 ) *controller.Impl {
 	log := logging.FromContext(ctx)
 	wasmmoduleInformer := wasmmoduleinformer.Get(ctx)
 	svcInformer := svcinformer.Get(ctx)
 
+	runnerConfigStore := NewRunnerConfigStore(logging.FromContext(ctx).Named("runner-config-store"))
+	runnerConfigStore.WatchConfigs(cmw)
+
 	reconciler := &Reconciler{
-		ServiceLister: svcInformer.Lister(),
-		Client:        svcclient.Get(ctx).ServingV1(),
+		ServiceLister:     svcInformer.Lister(),
+		Client:            svcclient.Get(ctx).ServingV1(),
+		RunnerConfigStore: runnerConfigStore,
 	}
 	impl := wasmmodulereconciler.NewImpl(ctx, reconciler)
 	reconciler.Tracker = impl.Tracker

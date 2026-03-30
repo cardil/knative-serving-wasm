@@ -61,9 +61,20 @@ async fn main() -> Result<()> {
         env::var("IMAGE")?
     };
 
+    // Read and parse INSECURE_REGISTRIES env var (comma-separated host[:port])
+    let insecure_registries: Vec<String> = env::var("INSECURE_REGISTRIES")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if !insecure_registries.is_empty() {
+        println!("Insecure registries configured: {:?}", insecure_registries);
+    }
+
     // Fetch and decode the Wasm in OCI image
     println!("Fetching WASM module from: {}", imgname);
-    let wasm = oci::fetch_oci_image(&imgname).await?;
+    let wasm = oci::fetch_oci_image(&imgname, &insecure_registries).await?;
     println!("WASM module fetched successfully ({} bytes)", wasm.len());
 
     // Compile the component on the command line to machine code

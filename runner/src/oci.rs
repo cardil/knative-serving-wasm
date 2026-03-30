@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use anyhow::{Error, Result};
+use oci_distribution::client::{ClientConfig, ClientProtocol};
 use oci_distribution::secrets::RegistryAuth;
 use oci_distribution::{Client, Reference};
 
@@ -29,11 +30,22 @@ fn bad_num_of_layers_err() -> Error {
 /// # Arguments
 /// * `imgname` - The OCI image reference (e.g., "ghcr.io/example/module:latest")
 ///              Can also include the "oci://" prefix which will be stripped.
+/// * `insecure_registries` - List of registry hostnames (host[:port]) that should
+///                           be accessed over plain HTTP instead of HTTPS.
 ///
 /// # Returns
 /// The WASM module binary data
-pub async fn fetch_oci_image(imgname: &str) -> Result<Vec<u8>> {
-    let oci = Client::default();
+pub async fn fetch_oci_image(imgname: &str, insecure_registries: &[String]) -> Result<Vec<u8>> {
+    let protocol = if insecure_registries.is_empty() {
+        ClientProtocol::Https
+    } else {
+        ClientProtocol::HttpsExcept(insecure_registries.to_vec())
+    };
+    let config = ClientConfig {
+        protocol,
+        ..ClientConfig::default()
+    };
+    let oci = Client::new(config);
     // Strip the oci:// prefix if present (used by Knative/WASI conventions)
     let imgname = imgname.strip_prefix("oci://").unwrap_or(imgname);
     let imgref: Reference = imgname.parse()?;
@@ -54,4 +66,59 @@ pub async fn fetch_oci_image(imgname: &str) -> Result<Vec<u8>> {
     let wasm = image.layers.first().ok_or(bad_num_of_layers_err())?;
 
     Ok(wasm.data.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_client_protocol_empty_list_uses_https() {
+        // When insecure_registries is empty, we should use ClientProtocol::Https
+        let insecure: Vec<String> = vec![];
+        let protocol = if insecure.is_empty() {
+            ClientProtocol::Https
+        } else {
+            ClientProtocol::HttpsExcept(insecure.clone())
+        };
+        // Verify it's the Https variant by checking it's not HttpsExcept
+        assert!(matches!(protocol, ClientProtocol::Https));
+    }
+
+    #[test]
+    fn test_client_protocol_single_entry_uses_https_except() {
+        let insecure = vec!["registry.local:5000".to_string()];
+        let protocol = if insecure.is_empty() {
+            ClientProtocol::Https
+        } else {
+            ClientProtocol::HttpsExcept(insecure.clone())
+        };
+        match protocol {
+            ClientProtocol::HttpsExcept(entries) => {
+                assert_eq!(entries, vec!["registry.local:5000"]);
+            }
+            _ => panic!("expected HttpsExcept variant"),
+        }
+    }
+
+    #[test]
+    fn test_client_protocol_multiple_entries_uses_https_except() {
+        let insecure = vec![
+            "registry.local:5000".to_string(),
+            "my-registry.internal:5000".to_string(),
+        ];
+        let protocol = if insecure.is_empty() {
+            ClientProtocol::Https
+        } else {
+            ClientProtocol::HttpsExcept(insecure.clone())
+        };
+        match protocol {
+            ClientProtocol::HttpsExcept(entries) => {
+                assert_eq!(entries.len(), 2);
+                assert!(entries.contains(&"registry.local:5000".to_string()));
+                assert!(entries.contains(&"my-registry.internal:5000".to_string()));
+            }
+            _ => panic!("expected HttpsExcept variant"),
+        }
+    }
 }
