@@ -233,8 +233,10 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 // MatchesInsecureRegistry reports whether the OCI image reference's registry
 // host matches any entry in the insecure registries list.
 func MatchesInsecureRegistry(image string, insecureRegistries []string) bool {
-	// Strip oci:// prefix if present
-	image = strings.TrimPrefix(image, "oci://")
+	// Strip oci:// prefix if present (case-insensitive)
+	if len(image) >= len("oci://") && strings.EqualFold(image[:len("oci://")], "oci://") {
+		image = image[len("oci://"):]
+	}
 
 	// Extract registry host from image reference.
 	// OCI image references have the form: [host[:port]/]path[:tag][@digest]

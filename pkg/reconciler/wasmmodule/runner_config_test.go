@@ -143,6 +143,7 @@ func TestMatchesInsecureRegistry_Matching(t *testing.T) {
 		{"my-registry.internal:5000/img:v1", true},
 		{"localhost/my-module:latest", true},
 		{"oci://localhost/my-module:v2", true},
+		{"OCI://registry.local:5000/mymodule:latest", true},
 		{"ghcr.io/example/module:latest", false},
 		{"docker.io/library/nginx:latest", false},
 	}
