@@ -248,8 +248,9 @@ func MatchesInsecureRegistry(image string, insecureRegistries []string) bool {
 	}
 
 	firstPart := image[:slash]
-	// If the first part contains a dot or colon, it's a registry host
-	if strings.ContainsAny(firstPart, ".:") {
+	// If the first part contains a dot or colon, or is "localhost", it's a registry host.
+	// "localhost" is a well-known exception that Docker/containerd also treat specially.
+	if strings.ContainsAny(firstPart, ".:") || strings.EqualFold(firstPart, "localhost") {
 		registryHost = firstPart
 	} else {
 		// No explicit registry host (e.g., "library/ubuntu") — uses docker.io

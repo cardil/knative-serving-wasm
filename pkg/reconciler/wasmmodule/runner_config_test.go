@@ -133,7 +133,7 @@ func TestNewRunnerConfigFromConfigMap_MalformedYAML(t *testing.T) {
 func TestMatchesInsecureRegistry_Matching(t *testing.T) {
 	t.Parallel()
 
-	registries := []string{"registry.local:5000", "my-registry.internal:5000"}
+	registries := []string{"registry.local:5000", "my-registry.internal:5000", "localhost"}
 
 	tests := []struct {
 		image string
@@ -141,6 +141,8 @@ func TestMatchesInsecureRegistry_Matching(t *testing.T) {
 	}{
 		{"registry.local:5000/mymodule:latest", true},
 		{"my-registry.internal:5000/img:v1", true},
+		{"localhost/my-module:latest", true},
+		{"oci://localhost/my-module:v2", true},
 		{"ghcr.io/example/module:latest", false},
 		{"docker.io/library/nginx:latest", false},
 	}
