@@ -48,7 +48,7 @@ func Deploy(f *goyek.Flow) {
 		Name:  "deploy",
 		Usage: "Deploys the controller onto Kubernetes",
 		Action: func(a *goyek.A) {
-			setupKoEnv(a)
+			setupKoEnvDev(a)
 			koApply(a)
 		},
 		Deps: goyek.Deps{
@@ -125,7 +125,7 @@ func Undeploy() goyek.Task {
 		Name:  "undeploy",
 		Usage: "Removes the controller from Kubernetes",
 		Action: func(a *goyek.A) {
-			setupKoEnv(a)
+			setupKoEnvDev(a)
 			ko := tools.Ghet(a, "ko")
 			executil.ExecOrDie(a, spaceJoin(ko, "delete", "-f", "config/"))
 		},
@@ -137,7 +137,7 @@ func Publish(f *goyek.Flow) goyek.Task {
 		Name:  "publish",
 		Usage: "Publish artifacts onto registry",
 		Action: func(a *goyek.A) {
-			setupKoEnv(a)
+			setupKoEnvDev(a)
 			pushExamples(a)
 			pushRunnerImage(a)
 		},
@@ -152,7 +152,7 @@ func Images() goyek.Task {
 		Name:  "images",
 		Usage: "Builds OCI images",
 		Action: func(a *goyek.A) {
-			setupKoEnv(a)
+			setupKoEnvDev(a)
 			buildExamples(a)
 			buildRunnerImage(a)
 		},
@@ -195,7 +195,29 @@ func resolveContainerEngine() string {
 	return e
 }
 
-func setupKoEnv(a *goyek.A) {
+// setupKoEnvDev sets KO_DOCKER_REPO from DEV_IMAGE_BASENAME for dev workflows
+// (deploy, publish, images). This ensures local development never accidentally
+// pushes to the production registry.
+func setupKoEnvDev(a *goyek.A) {
+	a.Helper()
+
+	if _, ok := os.LookupEnv(koDockerRepo); ok {
+		return
+	}
+
+	if v := os.Getenv("DEV_IMAGE_BASENAME"); v != "" {
+		a.Setenv(koDockerRepo, v)
+		return
+	}
+
+	a.Fatal("DEV_IMAGE_BASENAME is not set. " +
+		"Set it in .env or as an environment variable to target a dev registry. " +
+		"Production deploys go through the release task.")
+}
+
+// setupKoEnvProd sets KO_DOCKER_REPO from IMAGE_BASENAME for production
+// workflows (release).
+func setupKoEnvProd(a *goyek.A) {
 	a.Helper()
 
 	if _, ok := os.LookupEnv(koDockerRepo); !ok {

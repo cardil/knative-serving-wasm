@@ -46,7 +46,7 @@ var (
 func ensureClients(ctx context.Context) error {
 	clientsOnce.Do(func() {
 		// Verify image basename configuration
-		imageBasename, err := GetE2EImageBasename(context.WithoutCancel(ctx))
+		imageBasename, err := GetE2EImageBasename()
 		if err != nil {
 			errClientsInit = fmt.Errorf("E2E image basename check failed: %w", err)
 

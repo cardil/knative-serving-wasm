@@ -9,8 +9,10 @@ import (
 
 func Load(next goyek.Executor) goyek.Executor {
 	return func(in goyek.ExecuteInput) error {
-		if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
-			return err
+		for _, f := range []string{"user.env", ".env"} {
+			if err := godotenv.Load(f); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 		}
 
 		return next(in)

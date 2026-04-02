@@ -11,6 +11,7 @@ bazel-*
 *.out
 
 build/resources/
+user.env
 
 # AI
 .ai/

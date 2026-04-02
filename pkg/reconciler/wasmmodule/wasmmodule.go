@@ -291,12 +291,6 @@ func (r *Reconciler) updateService(
 
 	serviceName := module.Name
 
-	if r.Client == nil {
-		log.Errorf("Cannot update service %s: client is nil", serviceName)
-
-		return existing, nil
-	}
-
 	desired, err := r.buildDesiredService(ctx, module)
 	if err != nil {
 		return nil, err

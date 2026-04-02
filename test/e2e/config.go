@@ -19,7 +19,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 	"time"
@@ -28,14 +27,8 @@ import (
 )
 
 const (
-	// DefaultLocalRegistry is the default local registry for e2e tests.
-	DefaultLocalRegistry = "localhost:5001"
-
-	// E2EImageBasenameEnv is the environment variable for specifying test image basename.
-	E2EImageBasenameEnv = "E2E_IMAGE_BASENAME"
-
-	// ImageBasenameEnv is the environment variable for image basename.
-	ImageBasenameEnv = "IMAGE_BASENAME"
+	// DevImageBasenameEnv is the environment variable for specifying dev/test image basename.
+	DevImageBasenameEnv = "DEV_IMAGE_BASENAME"
 
 	// E2ETestTimeoutEnv is the environment variable for individual test timeout in seconds.
 	E2ETestTimeoutEnv = "E2E_TEST_TIMEOUT"
@@ -53,50 +46,20 @@ type Config struct {
 	ImageBasename string
 }
 
-// GetE2EImageBasename returns the image basename to use for e2e tests with safety checks.
-func GetE2EImageBasename(ctx context.Context) (string, error) {
-	// Load .env file to get production IMAGE_BASENAME
-	productionBasename := ""
-	if envMap, err := godotenv.Read(".env"); err == nil {
-		productionBasename = envMap[ImageBasenameEnv]
+func GetE2EImageBasename() (string, error) {
+	if v := os.Getenv(DevImageBasenameEnv); v != "" {
+		return v, nil
 	}
 
-	// Check for explicit E2E_IMAGE_BASENAME
-	if e2eBasename := os.Getenv(E2EImageBasenameEnv); e2eBasename != "" {
-		return e2eBasename, nil
+	for _, f := range []string{"user.env", ".env"} {
+		if envMap, err := godotenv.Read(f); err == nil {
+			if v := envMap[DevImageBasenameEnv]; v != "" {
+				return v, nil
+			}
+		}
 	}
 
-	// Check if IMAGE_BASENAME has been overridden from production value
-	currentBasename := os.Getenv(ImageBasenameEnv)
-	if currentBasename != "" && currentBasename != productionBasename {
-		// IMAGE_BASENAME is set and differs from production, use it
-		return currentBasename, nil
-	}
-
-	// Try to detect local registry and construct basename
-	if isLocalRegistryAvailable(ctx) {
-		return DefaultLocalRegistry + "/knative-serving-wasm", nil
-	}
-
-	return "", fmt.Errorf(
-		"e2e tests require %s environment variable or local registry on %s; "+
-			"alternatively, set %s to a non-production value; "+
-			"production value is %q",
-		E2EImageBasenameEnv, DefaultLocalRegistry, ImageBasenameEnv, productionBasename,
-	)
-}
-
-// isLocalRegistryAvailable checks if local registry is reachable.
-func isLocalRegistryAvailable(ctx context.Context) bool {
-	dialer := &net.Dialer{Timeout: 2 * time.Second}
-
-	conn, err := dialer.DialContext(ctx, "tcp", DefaultLocalRegistry)
-	if err != nil {
-		return false
-	}
-	defer conn.Close()
-
-	return true
+	return "", fmt.Errorf("%s is not set (check .env or environment)", DevImageBasenameEnv)
 }
 
 // GetTestTimeout returns the individual test timeout from environment or default.
@@ -111,8 +74,8 @@ func GetTestTimeout() time.Duration {
 }
 
 // NewConfig creates a new e2e test configuration.
-func NewConfig(ctx context.Context, namespace string) (*Config, error) {
-	imageBasename, err := GetE2EImageBasename(ctx)
+func NewConfig(_ context.Context, namespace string) (*Config, error) {
+	imageBasename, err := GetE2EImageBasename()
 	if err != nil {
 		return nil, err
 	}
