@@ -26,6 +26,7 @@ import (
 	api "github.com/cardil/knative-serving-wasm/pkg/apis/wasm/v1alpha1"
 	apireconciler "github.com/cardil/knative-serving-wasm/pkg/client/injection/reconciler/wasm/v1alpha1/wasmmodule"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
@@ -95,48 +96,88 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, module *api.WasmModule) 
 		return err
 	}
 
-	srv, err := r.ServiceLister.Services(module.Namespace).Get(serviceName)
-
-	if apierrs.IsNotFound(err) {
-		log.Info("Service does not exist. Creating: ", serviceName)
-
-		if srv, err = r.createService(ctx, module); err != nil {
-			module.Status.MarkServiceUnavailable(serviceName)
-
-			return err
-		}
-	} else if err != nil {
-		log.Errorf("Error reconciling service %s: %v", serviceName, err)
-
+	srv, err := r.reconcileService(ctx, module)
+	if err != nil {
 		return err
 	}
 
-	// Only mark ready when the underlying Service is ready
-	// This ensures pods are running and Kourier has the route before tests can access it
+	r.syncModuleStatus(ctx, module, srv)
+
+	return nil
+}
+
+// reconcileService gets the existing Knative Service for the module, creating or
+// updating it as needed, and returns the current state of the Service.
+func (r *Reconciler) reconcileService(
+	ctx context.Context, module *api.WasmModule,
+) (*servingv1.Service, error) {
+	log := logging.FromContext(ctx)
+	serviceName := module.Name
+
+	existing, err := r.ServiceLister.Services(module.Namespace).Get(serviceName)
+
+	switch {
+	case apierrs.IsNotFound(err):
+		log.Info("Service does not exist. Creating: ", serviceName)
+
+		srv, createErr := r.createService(ctx, module)
+		if createErr != nil {
+			module.Status.MarkServiceUnavailable(serviceName)
+
+			return nil, createErr
+		}
+
+		return srv, nil
+
+	case err != nil:
+		log.Errorf("Error reconciling service %s: %v", serviceName, err)
+
+		return nil, err
+
+	default:
+		srv, updateErr := r.updateService(ctx, module, existing)
+		if updateErr != nil {
+			module.Status.MarkServiceUnavailable(serviceName)
+
+			return nil, updateErr
+		}
+
+		return srv, nil
+	}
+}
+
+// syncModuleStatus updates the WasmModule status based on the Knative Service readiness.
+func (r *Reconciler) syncModuleStatus(
+	_ context.Context, module *api.WasmModule, srv *servingv1.Service,
+) {
+	serviceName := module.Name
+
+	// Only mark ready when the underlying Service is ready.
+	// This ensures pods are running and Kourier has the route before tests can access it.
 	readyCondition := srv.Status.GetCondition(apis.ConditionReady)
 	if readyCondition != nil && readyCondition.IsTrue() {
 		module.Status.MarkServiceAvailable()
 
-		// Use the external URL (srv.Status.URL) instead of internal address (srv.Status.Address)
+		// Use the external URL (srv.Status.URL) instead of internal address (srv.Status.Address).
 		// The external URL works with the Knative ingress (e.g., Kourier) and follows
-		// the configured domain (e.g., example.com for "No DNS" mode on Kind clusters)
+		// the configured domain (e.g., example.com for "No DNS" mode on Kind clusters).
 		if srv.Status.URL != nil {
 			module.Status.Address = &duckv1.Addressable{
 				URL: srv.Status.URL,
 			}
 		}
-	} else {
-		// Check for a terminal Configuration failure (e.g. RevisionFailed, ContainerMissing)
-		// so that clients can distinguish transient "not ready yet" from permanent failures.
-		cfgCond := srv.Status.GetCondition(servingv1.ConfigurationConditionReady)
-		if cfgCond != nil && cfgCond.IsFalse() {
-			module.Status.MarkServiceFailed(cfgCond.Reason, cfgCond.Message)
-		} else {
-			module.Status.MarkServiceUnavailable(serviceName)
-		}
+
+		return
 	}
 
-	return nil
+	// Check for a terminal Configuration failure (e.g. RevisionFailed, ContainerMissing)
+	// so that clients can distinguish transient "not ready yet" from permanent failures.
+	cfgCond := srv.Status.GetCondition(servingv1.ConfigurationConditionReady)
+	if cfgCond != nil && cfgCond.IsFalse() {
+		module.Status.MarkServiceFailed(cfgCond.Reason, cfgCond.Message)
+	} else {
+		module.Status.MarkServiceUnavailable(serviceName)
+	}
 }
 
 // buildEnvVars builds the env var list for the runner container, optionally
@@ -175,10 +216,8 @@ func (r *Reconciler) buildEnvVars(ctx context.Context, module *api.WasmModule, w
 	return envVars
 }
 
-func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) (*servingv1.Service, error) {
-	log := logging.FromContext(ctx)
-
-	// Use metadata.name as service name
+// buildDesiredService constructs the desired Knative Service for the given WasmModule.
+func (r *Reconciler) buildDesiredService(ctx context.Context, module *api.WasmModule) (*servingv1.Service, error) {
 	serviceName := module.Name
 
 	// Build WASI config for the runner
@@ -200,7 +239,7 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 		container.ImagePullPolicy = corev1.PullPolicy(DefaultImagePullPolicy)
 	}
 
-	srv, err := r.Client.Services(module.Namespace).Create(ctx, &servingv1.Service{
+	return &servingv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        serviceName,
 			Namespace:   module.Namespace,
@@ -222,9 +261,60 @@ func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) 
 				},
 			},
 		},
-	}, metav1.CreateOptions{})
+	}, nil
+}
+
+func (r *Reconciler) createService(ctx context.Context, module *api.WasmModule) (*servingv1.Service, error) {
+	log := logging.FromContext(ctx)
+
+	serviceName := module.Name
+
+	desired, err := r.buildDesiredService(ctx, module)
+	if err != nil {
+		return nil, err
+	}
+
+	srv, err := r.Client.Services(module.Namespace).Create(ctx, desired, metav1.CreateOptions{})
 	if err != nil {
 		log.Errorf("Error creating kservice %s: %v", serviceName, err)
+	}
+
+	return srv, err
+}
+
+// updateService compares the desired Service spec with the existing one and
+// updates the existing Service if the specs differ.
+func (r *Reconciler) updateService(
+	ctx context.Context, module *api.WasmModule, existing *servingv1.Service,
+) (*servingv1.Service, error) {
+	log := logging.FromContext(ctx)
+
+	serviceName := module.Name
+
+	if r.Client == nil {
+		log.Errorf("Cannot update service %s: client is nil", serviceName)
+
+		return existing, nil
+	}
+
+	desired, err := r.buildDesiredService(ctx, module)
+	if err != nil {
+		return nil, err
+	}
+
+	if equality.Semantic.DeepEqual(existing.Spec.Template, desired.Spec.Template) {
+		return existing, nil
+	}
+
+	log.Infof("Service spec changed, updating: %s", serviceName)
+
+	// Copy the desired template onto the existing object to preserve metadata (resourceVersion etc.)
+	updated := existing.DeepCopy()
+	updated.Spec.Template = desired.Spec.Template
+
+	srv, err := r.Client.Services(module.Namespace).Update(ctx, updated, metav1.UpdateOptions{})
+	if err != nil {
+		log.Errorf("Error updating kservice %s: %v", serviceName, err)
 	}
 
 	return srv, err
