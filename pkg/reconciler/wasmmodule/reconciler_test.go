@@ -31,6 +31,7 @@ import (
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	"knative.dev/pkg/tracker"
 	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
+	servingfake "knative.dev/serving/pkg/client/clientset/versioned/fake"
 	servingv1listers "knative.dev/serving/pkg/client/listers/serving/v1"
 )
 
@@ -170,10 +171,12 @@ func TestReconcileKind_TerminalConfigFailure(t *testing.T) {
 			const moduleName = "my-wasm"
 
 			svc := ksvcWithConfigFailed(ns, moduleName, tt.svcReason, tt.svcMessage)
+			fakeClient := servingfake.NewSimpleClientset(svc)
 
 			r := &wasmmodule.Reconciler{
 				Tracker:       fakeTracker{},
 				ServiceLister: buildServiceLister(svc),
+				Client:        fakeClient.ServingV1(),
 			}
 
 			module := &api.WasmModule{
@@ -200,10 +203,12 @@ func TestReconcileKind_TransientNotReady(t *testing.T) {
 	const moduleName = "my-wasm"
 
 	svc := ksvcWithReadyUnknown(ns, moduleName)
+	fakeClient := servingfake.NewSimpleClientset(svc)
 
 	r := &wasmmodule.Reconciler{
 		Tracker:       fakeTracker{},
 		ServiceLister: buildServiceLister(svc),
+		Client:        fakeClient.ServingV1(),
 	}
 
 	module := &api.WasmModule{
