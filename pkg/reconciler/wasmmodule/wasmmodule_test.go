@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"knative.dev/pkg/controller"
+	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	servingfake "knative.dev/serving/pkg/client/clientset/versioned/fake"
 )
 
@@ -260,6 +261,169 @@ func TestCreateService_InsecureRegistries_Absent(t *testing.T) {
 	for _, e := range containers[0].Env {
 		if e.Name == "INSECURE_REGISTRIES" {
 			t.Errorf("expected INSECURE_REGISTRIES to be absent, but got %q", e.Value)
+		}
+	}
+}
+
+// buildOldService creates a fake Knative Service with the given old image env var.
+func buildOldService(ns, name, oldImage string) *servingv1.Service {
+	return &servingv1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       ns,
+			ResourceVersion: "1",
+		},
+		Spec: servingv1.ServiceSpec{
+			ConfigurationSpec: servingv1.ConfigurationSpec{
+				Template: servingv1.RevisionTemplateSpec{
+					Spec: servingv1.RevisionSpec{
+						PodSpec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: wasmmodule.DefaultRunnerImage,
+									Env: []corev1.EnvVar{
+										{Name: "IMAGE", Value: oldImage},
+										{Name: "WASI_CONFIG", Value: "{}"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// getEnvMap extracts env vars from the first container of a Service as a map.
+func getEnvMap(t *testing.T, svc *servingv1.Service) map[string]string {
+	t.Helper()
+
+	containers := svc.Spec.Template.Spec.Containers
+	if len(containers) == 0 {
+		t.Fatal("expected at least one container")
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range containers[0].Env {
+		envMap[e.Name] = e.Value
+	}
+
+	return envMap
+}
+
+// TestUpdateService_SpecChanged verifies that when a WasmModule spec changes
+// (e.g. Image field), the reconciler updates the existing Knative Service.
+func TestUpdateService_SpecChanged(t *testing.T) {
+	t.Parallel()
+
+	const ns = "default"
+
+	const moduleName = "my-wasm-update"
+
+	// Seed the fake client with an existing Service that has the old IMAGE env var.
+	existingSvc := buildOldService(ns, moduleName, "example.com/old-image:v1")
+	fakeClient := servingfake.NewSimpleClientset(existingSvc)
+
+	r := &wasmmodule.Reconciler{
+		Tracker:       fakeTracker{},
+		ServiceLister: buildServiceLister(existingSvc),
+		Client:        fakeClient.ServingV1(),
+	}
+
+	// Module spec now references a new image.
+	module := &api.WasmModule{
+		ObjectMeta: metav1.ObjectMeta{Name: moduleName, Namespace: ns},
+		Spec:       api.WasmModuleSpec{Image: "example.com/new-image:v2"},
+	}
+	module.Status.InitializeConditions()
+
+	ctx := buildReconcilerCtx()
+	if err := r.ReconcileKind(ctx, module); err != nil {
+		t.Fatalf("ReconcileKind() error: %v", err)
+	}
+
+	// Verify the Service was updated with the new image in the IMAGE env var.
+	svc, err := fakeClient.ServingV1().Services(ns).Get(ctx, moduleName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get service: %v", err)
+	}
+
+	envMap := getEnvMap(t, svc)
+
+	if got := envMap["IMAGE"]; got != "example.com/new-image:v2" {
+		t.Errorf("IMAGE env var = %q, want %q", got, "example.com/new-image:v2")
+	}
+}
+
+// buildMatchingService builds a Knative Service whose spec exactly matches what the reconciler
+// would produce for the given WasmModule (i.e., no drift).
+func buildMatchingService(t *testing.T, ns, name string, module *api.WasmModule) *servingv1.Service {
+	t.Helper()
+
+	wasiConfig, err := wasmmodule.BuildRunnerConfig(module)
+	if err != nil {
+		t.Fatalf("BuildRunnerConfig: %v", err)
+	}
+
+	return &servingv1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, ResourceVersion: "1"},
+		Spec: servingv1.ServiceSpec{
+			ConfigurationSpec: servingv1.ConfigurationSpec{
+				Template: servingv1.RevisionTemplateSpec{
+					Spec: servingv1.RevisionSpec{
+						PodSpec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: wasmmodule.DefaultRunnerImage,
+									Env: []corev1.EnvVar{
+										{Name: "IMAGE", Value: module.Spec.Image},
+										{Name: "WASI_CONFIG", Value: wasiConfig},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// TestUpdateService_SpecUnchanged verifies that when the WasmModule spec hasn't
+// changed, the reconciler does NOT call Update (no unnecessary API calls).
+func TestUpdateService_SpecUnchanged(t *testing.T) {
+	t.Parallel()
+
+	const ns = "default"
+
+	const moduleName = "my-wasm-noop"
+
+	module := &api.WasmModule{
+		ObjectMeta: metav1.ObjectMeta{Name: moduleName, Namespace: ns},
+		Spec:       api.WasmModuleSpec{Image: "example.com/img:latest"},
+	}
+	module.Status.InitializeConditions()
+
+	ctx := buildReconcilerCtx()
+
+	existingSvc := buildMatchingService(t, ns, moduleName, module)
+	fakeClient := servingfake.NewSimpleClientset(existingSvc)
+
+	r := &wasmmodule.Reconciler{
+		Tracker:       fakeTracker{},
+		ServiceLister: buildServiceLister(existingSvc),
+		Client:        fakeClient.ServingV1(),
+	}
+
+	if err := r.ReconcileKind(ctx, module); err != nil {
+		t.Fatalf("ReconcileKind() error: %v", err)
+	}
+
+	// Inspect fake client actions to confirm Update was NOT called.
+	for _, a := range fakeClient.Actions() {
+		if a.GetVerb() == "update" && a.GetResource().Resource == "services" {
+			t.Errorf("expected no Update call when spec is unchanged, but got one: %v", a)
 		}
 	}
 }
