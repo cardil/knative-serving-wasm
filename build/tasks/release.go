@@ -74,7 +74,7 @@ func ReleaseBuild() goyek.Task {
 		Name:  "release-build",
 		Usage: "Builds release artifacts locally (no registry push), saves version to build/output/release/version.txt",
 		Action: func(a *goyek.A) {
-			setupKoEnv(a)
+			setupKoEnvProd(a)
 
 			version := detectReleaseVersion(a)
 			a.Log("Release version: ", version)
@@ -131,7 +131,7 @@ func ReleasePerform() goyek.Task {
 		Name:  "release-perform",
 		Usage: "Pushes images and publishes GitHub release (reads version from build/output/release/version.txt)",
 		Action: func(a *goyek.A) {
-			setupKoEnv(a)
+			setupKoEnvProd(a)
 
 			// Read version written by release:build
 			versionBytes, err := os.ReadFile(versionFile)
