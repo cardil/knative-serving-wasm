@@ -201,7 +201,8 @@ func resolveContainerEngine() string {
 func setupKoEnvDev(a *goyek.A) {
 	a.Helper()
 
-	if _, ok := os.LookupEnv(koDockerRepo); ok {
+	if v, ok := os.LookupEnv(koDockerRepo); ok {
+		a.Setenv("DEV_IMAGE_BASENAME", v)
 		return
 	}
 

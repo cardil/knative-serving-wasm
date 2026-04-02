@@ -59,7 +59,7 @@ func GetE2EImageBasename() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("%s is not set (check .env or environment)", DevImageBasenameEnv)
+	return "", fmt.Errorf("%s is not set (check user.env, .env, or environment)", DevImageBasenameEnv)
 }
 
 // GetTestTimeout returns the individual test timeout from environment or default.
